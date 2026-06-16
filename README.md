@@ -120,4 +120,4 @@ This research artifact is authored by Vinod Gendre and Nitesh K Bharadwaj, Depar
 
 ## License
 
-MIT. See `LICENSE`.
+All rights reserved. Source code is provided for academic review and reproducibility assessment only. See `LICENSE`.

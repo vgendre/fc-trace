@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Forensic reconstruction of ext4 fast-commit logs for Linux incident timelines"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = {text = "All Rights Reserved - academic review and reproducibility only"}
 authors = [
   {name = "Vinod Gendre", email = "vgendre.phd2024.cse@nitrr.ac.in"},
   {name = "Nitesh K Bharadwaj", email = "nkbharadwaj.cse@nitrr.ac.in"},
@@ -18,7 +18,6 @@ classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
   "Topic :: Security",
-  "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
