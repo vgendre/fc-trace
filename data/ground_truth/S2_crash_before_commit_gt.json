@@ -1,0 +1,47 @@
+[
+  {
+    "seq": 0,
+    "event_type": "CREATE",
+    "ino": 14,
+    "parent_ino": 2,
+    "name": "crash_0.dat",
+    "new_name": "",
+    "new_parent": 0
+  },
+  {
+    "seq": 1,
+    "event_type": "CREATE",
+    "ino": 15,
+    "parent_ino": 2,
+    "name": "crash_1.dat",
+    "new_name": "",
+    "new_parent": 0
+  },
+  {
+    "seq": 2,
+    "event_type": "CREATE",
+    "ino": 16,
+    "parent_ino": 2,
+    "name": "crash_2.dat",
+    "new_name": "",
+    "new_parent": 0
+  },
+  {
+    "seq": 3,
+    "event_type": "CREATE",
+    "ino": 17,
+    "parent_ino": 2,
+    "name": "crash_3.dat",
+    "new_name": "",
+    "new_parent": 0
+  },
+  {
+    "seq": 4,
+    "event_type": "CREATE",
+    "ino": 18,
+    "parent_ino": 2,
+    "name": "crash_4.dat",
+    "new_name": "",
+    "new_parent": 0
+  }
+]

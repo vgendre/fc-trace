@@ -1,0 +1,60 @@
+name: FC-Trace CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run test suite
+        run: |
+          python -m pytest tests/test_fctrace.py -v --tb=short
+
+      - name: Check import cleanliness (no side-effects on import)
+        run: |
+          python -c "
+          import sys; sys.path.insert(0,'src')
+          import fctrace.parser.fc_tags
+          import fctrace.parser.tlv_decoder
+          import fctrace.io.image_reader
+          import fctrace.io.journal_reader
+          import fctrace.reconstruct.event_builder
+          import fctrace.compare.baseline_ext4
+          import fctrace.compare.diff_engine
+          import fctrace.output.reporters
+          print('All imports clean')
+          "
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff
+      - name: Run ruff (errors only)
+        run: ruff check src/ tests/ scripts/ --select E,F --ignore E501

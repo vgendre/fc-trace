@@ -1,0 +1,56 @@
+[
+  {
+    "seq": 0,
+    "event_type": "CREATE",
+    "ino": 14,
+    "parent_ino": 8193,
+    "name": "a.txt",
+    "new_name": "",
+    "new_parent": 0
+  },
+  {
+    "seq": 1,
+    "event_type": "RENAME",
+    "ino": 14,
+    "parent_ino": 8193,
+    "name": "a.txt",
+    "new_name": "b.txt",
+    "new_parent": 8193
+  },
+  {
+    "seq": 2,
+    "event_type": "LINK",
+    "ino": 14,
+    "parent_ino": 8193,
+    "name": "hardlink.txt",
+    "new_name": "",
+    "new_parent": 0
+  },
+  {
+    "seq": 3,
+    "event_type": "UNLINK",
+    "ino": 14,
+    "parent_ino": 8193,
+    "name": "hardlink.txt",
+    "new_name": "",
+    "new_parent": 0
+  },
+  {
+    "seq": 4,
+    "event_type": "CREATE",
+    "ino": 15,
+    "parent_ino": 8193,
+    "name": "c.txt",
+    "new_name": "",
+    "new_parent": 0
+  },
+  {
+    "seq": 5,
+    "event_type": "UNLINK",
+    "ino": 15,
+    "parent_ino": 8193,
+    "name": "c.txt",
+    "new_name": "",
+    "new_parent": 0
+  }
+]

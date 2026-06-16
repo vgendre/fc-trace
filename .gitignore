@@ -1,0 +1,73 @@
+# ── Python ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.env
+.venv/
+env/
+venv/
+pip-wheel-metadata/
+*.egg
+MANIFEST
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ── LaTeX ────────────────────────────────────────────────────
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.fdb_latexmk
+paper/*.fls
+paper/*.log
+paper/*.out
+paper/*.synctex.gz
+paper/*.toc
+paper/*.lof
+paper/*.lot
+
+# ── Dataset / raw images (large binary files) ────────────────
+data/raw_images/*.img
+data/raw_images/*.raw
+data/extracted_journal/*.bin
+data/processed/
+inputs/*.img
+outputs/
+!outputs/.gitkeep
+
+# Keep ground-truth JSON and scripts
+!data/ground_truth/
+!data/ground_truth/*.json
+
+# -- Local release bundles / backups --------------------------------
+FC Trace release_artifacts*/
+*.zip
+
+# ── OS / editor artefacts ────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Secrets / credentials ────────────────────────────────────
+.env
+*.pem
+*.key
+secrets.yaml

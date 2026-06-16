@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fc-trace"
+version = "0.1.0"
+description = "Forensic reconstruction of ext4 fast-commit logs for Linux incident timelines"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+  {name = "Vinod Gendre", email = "vgendre.phd2024.cse@nitrr.ac.in"},
+  {name = "Nitesh K Bharadwaj", email = "nkbharadwaj.cse@nitrr.ac.in"},
+]
+keywords = ["digital-forensics", "ext4", "linux", "fast-commit", "incident-response"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Topic :: Security",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+eval = ["matplotlib>=3.7", "pandas>=2.0"]
+
+[project.scripts]
+fctrace = "fctrace.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

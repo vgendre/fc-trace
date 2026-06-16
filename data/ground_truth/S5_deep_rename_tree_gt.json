@@ -1,0 +1,56 @@
+[
+  {
+    "seq": 0,
+    "event_type": "CREATE",
+    "ino": 8193,
+    "parent_ino": 2,
+    "name": "level1",
+    "new_name": "",
+    "new_parent": 0
+  },
+  {
+    "seq": 1,
+    "event_type": "CREATE",
+    "ino": 14,
+    "parent_ino": 8193,
+    "name": "level2",
+    "new_name": "",
+    "new_parent": 0
+  },
+  {
+    "seq": 2,
+    "event_type": "CREATE",
+    "ino": 15,
+    "parent_ino": 14,
+    "name": "level3",
+    "new_name": "",
+    "new_parent": 0
+  },
+  {
+    "seq": 3,
+    "event_type": "CREATE",
+    "ino": 16,
+    "parent_ino": 15,
+    "name": "target.txt",
+    "new_name": "",
+    "new_parent": 0
+  },
+  {
+    "seq": 4,
+    "event_type": "RENAME",
+    "ino": 16,
+    "parent_ino": 15,
+    "name": "target.txt",
+    "new_name": "moved.txt",
+    "new_parent": 8193
+  },
+  {
+    "seq": 5,
+    "event_type": "RENAME",
+    "ino": 16,
+    "parent_ino": 8193,
+    "name": "moved.txt",
+    "new_name": "moved.txt",
+    "new_parent": 2
+  }
+]
