@@ -114,9 +114,9 @@ Real-image tests show high precision in this harness, but recall is bounded by w
 
 Use FC-Trace only on disk images you are legally authorized to examine. The included experiments use generated test images and no real user data.
 
-## Authors and Citation
+## Authors and Affiliation
 
-Authors are listed in `AUTHORS.md`. Citation metadata is provided in `CITATION.cff`.
+This research artifact is authored by Vinod Gendre and Nitesh K Bharadwaj, Department of Computer Science and Engineering, National Institute of Technology Raipur, India. Authors are listed in `AUTHORS.md`; citation metadata is provided in `CITATION.cff`.
 
 ## License
 
