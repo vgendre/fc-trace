@@ -43,6 +43,48 @@ Expected result for this artifact snapshot:
 56 passed
 ```
 
+## Fresh GitHub Installation Check
+
+Use this sequence to verify that the private GitHub upload installs and tests correctly from a clean checkout. For a private repository, enter your GitHub username and use a personal access token as the HTTPS password when prompted.
+
+```bash
+cd /tmp
+git clone https://github.com/vgendre/fc-trace.git fc-trace-github-test
+cd fc-trace-github-test
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[dev]'
+pytest -q
+fctrace --help
+python -m fctrace.cli --help
+```
+
+Expected test result:
+
+```text
+56 passed
+```
+
+## Experiment Reproduction
+
+After the fresh installation check, reproduce the simulation experiment with:
+
+```bash
+python scripts/score_results.py --simulate --output results/evaluation.json
+```
+
+Reproduce the real-image experiment on a Linux host with ext4 fast-commit support, loop devices, and root privileges:
+
+```bash
+sudo python scripts/run_real_image_tests.py \
+  --output results/evaluation_realmode.json \
+  --snap-dir data/raw_images \
+  --gt-dir data/ground_truth \
+  --scenarios S1,S2,S3,S4,S5
+```
+
+The real-image command creates 512 MiB loopback images and snapshots under `data/raw_images/`. These `.img` files are intentionally excluded from Git; only the checksum manifest and README are tracked.
+
 ## Run FC-Trace
 
 ```bash
