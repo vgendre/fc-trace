@@ -472,12 +472,13 @@ def run_scenario(
 # ---------------------------------------------------------------------------
 
 def print_table(results: List[EvaluationResult]) -> None:
-    W = 82
+    hdr = f"  {'Scenario':<32} {'GT':>4} {'TP':>4} {'FP':>4} {'FN':>4}  {'R':>6}{'P':>6}{'F1':>6}{'Ord':>6}{'Path':>6}  "
+    W = len(hdr)
+    title = "  FC-TRACE REAL-IMAGE EVALUATION (honest, not simulation)"
     print()
     print("╔" + "═"*W + "╗")
-    print("║  FC-TRACE REAL-IMAGE EVALUATION (honest, not simulation)" + " "*(W-55) + "║")
+    print(f"║{title:<{W}}║")
     print("╠" + "═"*W + "╣")
-    hdr = f"  {'Scenario':<32} {'GT':>4} {'TP':>4} {'FP':>4} {'FN':>4}  {'R':>6}{'P':>6}{'F1':>6}{'Ord':>6}{'Path':>6}  "
     print(f"║{hdr}║")
     print("╠" + "═"*W + "╣")
     for r in results:

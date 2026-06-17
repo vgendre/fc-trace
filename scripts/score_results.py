@@ -229,12 +229,13 @@ def _simulate_baseline_predictions(sc_id: str, gt: List[dict]) -> Dict[str, List
 
 def _print_table(all_results: List[EvaluationResult]) -> None:
     """Print a formatted metric table to stdout."""
-    W = 74
+    hdr = f"  {'Scenario':<30}{'Method':<14}{'R':>6}{'P':>6}{'F1':>6}{'Ord':>6}{'Path':>6}  "
+    W = len(hdr)
+    title = "  FC-TRACE EVALUATION RESULTS"
     print()
     print("╔" + "═"*W + "╗")
-    print("║  FC-TRACE EVALUATION RESULTS" + " "*(W-29) + "║")
+    print(f"║{title:<{W}}║")
     print("╠" + "═"*W + "╣")
-    hdr = f"  {'Scenario':<30}{'Method':<14}{'R':>6}{'P':>6}{'F1':>6}{'Ord':>6}{'Path':>6}  "
     print(f"║{hdr}║")
     print("╠" + "═"*W + "╣")
 
