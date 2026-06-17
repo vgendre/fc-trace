@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Forensic reconstruction of ext4 fast-commit logs for Linux incident timelines"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "All Rights Reserved - academic review and reproducibility only"}
+license = {text = "Pre-publication research review only; no open-source license granted"}
 authors = [
   {name = "Vinod Gendre", email = "vgendre.phd2024.cse@nitrr.ac.in"},
   {name = "Nitesh K Bharadwaj", email = "nkbharadwaj.cse@nitrr.ac.in"},

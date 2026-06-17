@@ -160,6 +160,10 @@ Use FC-Trace only on disk images you are legally authorized to examine. The incl
 
 This research artifact is authored by Vinod Gendre and Nitesh K Bharadwaj, Department of Computer Science and Engineering, National Institute of Technology Raipur, India. Authors are listed in `AUTHORS.md`; citation metadata is provided in `CITATION.cff`.
 
-## License
+## Availability
 
-All rights reserved. Source code is provided for academic review and reproducibility assessment only. See `LICENSE`.
+FC-Trace is being submitted as part of an associated conference paper. During the review period, the source code, evaluation scripts, synthetic ground-truth data, and reproducibility artifact package are available from the authors on reasonable request for academic review and verification of the reported results. The repository is not intended for public release at this stage.
+
+## Copyright and License Status
+
+FC-Trace is original research software developed by the authors. Formal copyright registration is planned separately, but it is not completed in this pre-publication repository snapshot. Public release and license selection are deferred until after the copyright-registration process is completed. Until then, no open-source license is granted; see `LICENSE` for the current review-only terms.

@@ -1,22 +1,31 @@
-All Rights Reserved
+Research Review and Pre-Publication Availability Notice
 
-Copyright (c) 2026 Vinod Gendre and Nitesh K Bharadwaj
+FC-Trace is original research software developed by Vinod Gendre and Nitesh K
+Bharadwaj, Department of Computer Science and Engineering, National Institute
+of Technology Raipur, India.
 
-This software is the original research code of the authors. The source code is
-provided for academic paper review, reproducibility assessment, and archival
-verification only.
+This repository snapshot is prepared for conference-paper submission and
+reproducibility review. Formal copyright registration is planned separately,
+but it is not completed in this pre-publication snapshot.
 
-No permission is granted to copy, redistribute, sublicense, sell, publish, or
-commercially use this software or substantial portions of it without prior
-written permission from the copyright holders.
+During the review period, the FC-Trace source code, evaluation scripts,
+synthetic ground-truth data, and accompanying artifact package are available
+from the authors on reasonable request for academic review and verification of
+the reported experimental results. The repository is not intended for public
+release at this stage.
 
-Researchers may inspect and execute the code for the purpose of reproducing the
-reported experimental results, provided that the copyright notice and this
-permission notice remain intact.
+Public release and license selection are deferred until after the
+copyright-registration process is completed. Until then, no open-source license
+is granted. No permission is granted to copy, redistribute, sublicense, sell,
+publish, or commercially use this software or substantial portions of it without
+prior written permission from the authors.
+
+Researchers who receive access may inspect and execute the code only for
+review and reproducibility purposes, provided that this notice remains intact
+and the code is not further redistributed.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS BE
+LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM, OUT OF, OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

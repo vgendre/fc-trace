@@ -2,7 +2,6 @@ cff-version: 1.2.0
 message: "If you use FC-Trace in academic work, please cite the software artifact."
 title: "FC-Trace: Rapid Timeline Reconstruction from ext4 Journal Commit Evidence"
 version: "0.1.0"
-date-released: "2026-06-16"
 authors:
   - family-names: "Gendre"
     given-names: "Vinod"
@@ -12,5 +11,7 @@ authors:
     given-names: "Nitesh K"
     email: "nkbharadwaj.cse@nitrr.ac.in"
     affiliation: "Department of Computer Science and Engineering, National Institute of Technology Raipur, India"
-license: "All Rights Reserved - academic review and reproducibility only"
+license: "Pre-publication research review only; no open-source license granted"
 repository-code: "https://github.com/vgendre/fc-trace"
+
+abstract: "Source code and reproducibility artifacts are available from the authors on reasonable request during review."
