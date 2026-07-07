@@ -11,7 +11,7 @@ authors:
     given-names: "Nitesh K"
     email: "nkbharadwaj.cse@nitrr.ac.in"
     affiliation: "Department of Computer Science and Engineering, National Institute of Technology Raipur, India"
-license: "Pre-publication research review only; no open-source license granted"
+license: "Research verification only; see LICENSE"
 repository-code: "https://github.com/vgendre/fc-trace"
 
-abstract: "Source code and reproducibility artifacts are available from the authors on reasonable request during review."
+abstract: "The FC-Trace source code, evaluation scripts, synthetic datasets, and Dockerfile are available from the authors upon reasonable academic request at https://github.com/vgendre/fc-trace for research verification."

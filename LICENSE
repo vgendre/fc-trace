@@ -1,28 +1,32 @@
-Research Review and Pre-Publication Availability Notice
+Research Verification and Copyright Notice
 
 FC-Trace is original research software developed by Vinod Gendre and Nitesh K
 Bharadwaj, Department of Computer Science and Engineering, National Institute
 of Technology Raipur, India.
 
-This repository snapshot is prepared for conference-paper submission and
-reproducibility review. Formal copyright registration is planned separately,
-but it is not completed in this pre-publication snapshot.
+FC-Trace is intended for use in forensic investigations of disk images lawfully
+acquired through authorized processes, such as court orders or sanctioned
+incident response. All experiments in the associated study used only synthetic
+disk images and did not involve personal or proprietary data.
 
-During the review period, the FC-Trace source code, evaluation scripts,
-synthetic ground-truth data, and accompanying artifact package are available
-from the authors on reasonable request for academic review and verification of
-the reported experimental results. The repository is not intended for public
-release at this stage.
+The source code, evaluation scripts, synthetic datasets, and Dockerfile for
+environment setup are available from the authors upon reasonable academic
+request at:
 
-Public release and license selection are deferred until after the
-copyright-registration process is completed. Until then, no open-source license
-is granted. No permission is granted to copy, redistribute, sublicense, sell,
-publish, or commercially use this software or substantial portions of it without
-prior written permission from the authors.
+https://github.com/vgendre/fc-trace
 
-Researchers who receive access may inspect and execute the code only for
-review and reproducibility purposes, provided that this notice remains intact
-and the code is not further redistributed.
+The repository is not public for copyright reasons, but it will be shared for
+research verification of the reported results.
+
+Copyright (c) 2026 Vinod Gendre and Nitesh K Bharadwaj. All rights reserved.
+
+Researchers who receive access may inspect, build, and execute the code only
+for academic review, reproducibility, and verification purposes, provided that
+this notice remains intact.
+
+No permission is granted to redistribute, sublicense, sell, publish, make public,
+or commercially use this software or substantial portions of it without prior
+written permission from the authors.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS

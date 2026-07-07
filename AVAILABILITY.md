@@ -1,14 +1,18 @@
 # Availability Statement
 
-FC-Trace is being submitted as part of an associated conference paper. During
-the review period, the source code, evaluation scripts, synthetic ground-truth
-data, and reproducibility artifact package are available from the authors on
-reasonable request for academic review and verification of the reported results.
+FC-Trace is intended for use in forensic investigations of disk images lawfully
+acquired through authorized processes, such as court orders or sanctioned
+incident response. All experiments in this study used only synthetic disk images
+and did not involve personal or proprietary data.
 
-Formal copyright registration is planned separately, but it is not completed in
-this pre-publication repository snapshot. The repository is not intended for
-public release at this stage. Public release and license selection are deferred
-until after the copyright-registration process is completed.
+The source code, evaluation scripts, synthetic datasets, and Dockerfile for
+environment setup are available from the authors upon reasonable academic
+request:
+
+https://github.com/vgendre/fc-trace
+
+The repository is not public for copyright reasons, but it will be shared for
+research verification of the results reported in the associated paper.
 
 Contact:
 

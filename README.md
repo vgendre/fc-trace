@@ -45,7 +45,7 @@ Expected result for this artifact snapshot:
 
 ## Fresh GitHub Installation Check
 
-Use this sequence to verify that the private GitHub upload installs and tests correctly from a clean checkout. For a private repository, enter your GitHub username and use a personal access token as the HTTPS password when prompted.
+Use this sequence to verify that an authorized GitHub checkout installs and tests correctly. If the repository is private, enter your GitHub username and use a personal access token as the HTTPS password when prompted.
 
 ```bash
 cd /tmp
@@ -162,8 +162,14 @@ This research artifact is authored by Vinod Gendre and Nitesh K Bharadwaj, Depar
 
 ## Availability
 
-FC-Trace is being submitted as part of an associated conference paper. During the review period, the source code, evaluation scripts, synthetic ground-truth data, and reproducibility artifact package are available from the authors on reasonable request for academic review and verification of the reported results. The repository is not intended for public release at this stage.
+FC-Trace is intended for use in forensic investigations of disk images lawfully acquired through authorized processes, such as court orders or sanctioned incident response. All experiments in this study used only synthetic disk images and did not involve personal or proprietary data.
+
+The source code, evaluation scripts, synthetic datasets, and Dockerfile for environment setup are available from the authors upon reasonable academic request:
+
+https://github.com/vgendre/fc-trace
+
+The repository is not public for copyright reasons, but it will be shared for research verification of the results reported in the associated paper.
 
 ## Copyright and License Status
 
-FC-Trace is original research software developed by the authors. Formal copyright registration is planned separately, but it is not completed in this pre-publication repository snapshot. Public release and license selection are deferred until after the copyright-registration process is completed. Until then, no open-source license is granted; see `LICENSE` for the current review-only terms.
+FC-Trace is original research software developed by the authors. The repository is not public for copyright reasons, but access may be provided for reasonable academic research verification. Copyright remains with the authors; see `LICENSE` for permitted use, redistribution, and warranty terms.
