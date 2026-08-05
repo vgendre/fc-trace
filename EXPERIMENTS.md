@@ -136,7 +136,7 @@ sudo umount /mnt/transfer
 ```bash
 cat > user-data <<'EOF'
 #cloud-config
-password: fctrace
+password: CHANGE_ME
 chpasswd: { expire: False }
 runcmd:
   - [ mkdir, -p, /mnt/x ]

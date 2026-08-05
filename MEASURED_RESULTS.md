@@ -475,7 +475,7 @@ Running it on the scenario snapshots produced zero events:
 
 ```
 Path specifications that could not be processed:
-  type: OS, location: /root/snap_fresh/S1_normal_workload_snap.img
+  type: OS, location: <snapshot_root>/S1_normal_workload_snap.img
   type: RAW
   type: EXT, location: /
 Total events: 0
