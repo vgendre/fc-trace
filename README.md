@@ -157,4 +157,4 @@ Use FC-Trace only on disk images that you are legally authorized to examine.
 
 ## Citation and license
 
-Code citation metadata is in `CITATION.cff`. The source code is released under the MIT License; dataset licensing is stated in the Zenodo record.
+Code citation metadata is in `CITATION.cff`. The source code is released under the MIT License. Dataset licensing is stated in the Zenodo record.
