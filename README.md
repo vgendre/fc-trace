@@ -1,79 +1,160 @@
-# FC-Trace code release
+# FC-Trace code release v1.0.0
 
-FC-Trace is a Python research tool for parsing ext4 fast-commit records from raw disk images and reconstructing ordered, integrity-checked forensic events.
+This directory contains the FC-Trace v1.0.0 code release.
 
-## Code scope
+FC-Trace is a Python research tool for parsing ext4 fast-commit records from raw disk images and reconstructing ordered, integrity-checked forensic events. It is intended for post-mortem analysis of ext4 volumes created with the `fast_commit` feature enabled.
 
-This GitHub package contains the source code, tests, experiment harnesses, dataset-generation code, packaging metadata, and documentation. It does not contain the large raw disk images or measured result deposit. The corresponding synthetic dataset is published separately through Zenodo. The camera-ready manuscript is supplied separately as an Overleaf source package.
+## Code release scope
+
+This repository contains the FC-Trace source code, command-line interface, tests, experiment scripts, packaging metadata, and documentation. It does not contain raw disk images, the Zenodo dataset deposit.
+
+- `src/fctrace/` — parser, event reconstruction, reporters, and CLI
+- `tests/` — automated unit and integration tests
+- `scripts/` — simulation, image generation, scoring, and experiment tools
+- `.github/workflows/` — continuous-integration workflow
+- `pyproject.toml` — package metadata and dependencies
+- `Dockerfile` — optional container test environment
 
 ## Requirements
 
-- Linux kernel with ext4 fast-commit support for real-image experiments
+### Required for installation and tests
+
 - Python 3.10 or newer
-- e2fsprogs with `mkfs.ext4 -O fast_commit`
-- Root privileges and loop devices only for real-image generation
+- `python3-venv` and `python3-pip`
+- Internet access for the first installation, unless the packages are already cached
 
-## Install and test
+There is no separate `requirements.txt`. The package and development dependency are declared in `pyproject.toml`.
+
+### Additional requirements for real-image experiments
+
+- Linux with an ext4 kernel that supports `fast_commit`
+- `e2fsprogs`, including `mkfs.ext4` and `dumpe2fs`
+- root privileges, loop devices, and mount permission
+
+These additional requirements are not needed to install FC-Trace, run the parser tests, run simulation mode, or analyze an existing image read-only.
+
+## Install step by step
+
+On Debian or Ubuntu, install the Python prerequisites:
 
 ```bash
-python3 -m pip install -e ".[dev]"
-python3 -m pytest -q
+sudo apt-get update
+sudo apt-get install -y python3 python3-venv python3-pip
+```
+
+Clone the code repository and enter its root directory:
+
+```bash
+git clone https://github.com/vgendre/fc-trace.git
+cd fc-trace
+```
+
+Create and activate an isolated environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+Upgrade packaging tools and install FC-Trace in editable mode with its test dependency:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
+
+The installation creates the `fctrace` command. Keep the virtual environment activated while using it.
+
+## Test step by step
+
+Confirm that the command-line interface is installed:
+
+```bash
 fctrace --help
+python -m fctrace.cli --help
 ```
 
-The unit-test suite is the code-release check. Real-image experiments require the host prerequisites above and write their outputs to paths supplied by the user.
-
-## Analyze an image
+Run the complete automated test file:
 
 ```bash
-python3 -m fctrace.cli path/to/disk.img \
-  --output-json /tmp/events.json \
-  --output-csv /tmp/events.csv \
-  --output-text /tmp/events.txt
+python -m pytest tests/test_fctrace.py -q
 ```
 
-The CLI opens the image read-only and never mounts the evidence image.
+The verified result for this release is:
 
-## Generate the publication dataset
+```text
+84 passed
+```
 
-The scripts `generate_dataset.py` and `run_real_image_tests.py` are included for reproducibility. The generated image files belong in the separate Zenodo dataset deposit and must not be committed to the GitHub repository.
+The test suite uses synthetic buffers and temporary files. It does not require root privileges, loop devices, or a disk image.
+
+## Analyze an existing image
+
+FC-Trace opens the input image read-only and does not mount it. Write reports outside the evidence directory:
 
 ```bash
-sudo python3 scripts/generate_dataset.py \
-  --output-dir ./generated/raw_images \
-  --gt-dir ./generated/ground_truth \
+fctrace /path/to/disk.img \
+  --output-json /tmp/fctrace-events.json \
+  --output-csv /tmp/fctrace-events.csv \
+  --output-text /tmp/fctrace-events.txt
+```
+
+The equivalent module command is:
+
+```bash
+python -m fctrace.cli /path/to/disk.img --output-json /tmp/fctrace-events.json
+```
+
+## Run the no-root simulation
+
+Simulation validates parser and event-reconstruction behaviour with canonical TLV buffers:
+
+```bash
+python scripts/score_results.py --simulate \
+  --output /tmp/fc-trace-simulation.json
+```
+
+This is a parser validation result, not a real-image accuracy claim.
+
+## Run real-image evaluation
+
+Read `EXPERIMENTS.md` before running privileged commands. The short command is:
+
+```bash
+sudo python scripts/run_real_image_tests.py \
+  --output /tmp/fc-trace-evaluation.json \
+  --snap-dir /tmp/fc-trace-snapshots \
+  --gt-dir /tmp/fc-trace-ground-truth \
   --scenarios S1,S2,S3,S4,S5
 ```
 
-To run the real-image evaluator after generation:
+The command creates synthetic ext4 images and snapshots. Use temporary output directories because the raw images are large and must not be committed to GitHub. Regenerating on another host can change inode numbers, timestamps, offsets, and checksums.
+
+## Optional dependencies and Docker
+
+Install plotting and tabular-analysis dependencies only when needed:
 
 ```bash
-sudo python3 scripts/run_real_image_tests.py \
-  --output ./generated/evaluation_realmode.json \
-  --snap-dir ./generated/raw_images \
-  --gt-dir ./generated/ground_truth \
-  --scenarios S1,S2,S3,S4,S5
+python -m pip install -e ".[dev,eval]"
 ```
 
-The evaluator requires Linux loop devices and root privileges. Existing raw images can be analyzed without mounting them.
-
-## Container verification
+The optional comparison scripts may use `fls`, `jls`, `debugfs`, Autopsy, or plaso when separately installed.
 
 ```bash
 docker build -t fc-trace:1.0 .
-docker run --rm fc-trace:1.0 python3 -m fctrace.cli --help
+docker run --rm fc-trace:1.0 python -m pytest tests/test_fctrace.py -q
 ```
 
-Dataset generation inside the container requires `--privileged` and a mounted output directory.
+Real-image generation in a container requires loop-device access and a privileged container.
 
-## Publication artifacts
+## Dataset and limitations
 
-- GitHub: this code-only release.
-- Zenodo: synthetic raw images, ground truth, measured results, checksums, and provenance.
-- Overleaf: `main_camera_ready.tex` and the compiled seven-page PDF in the separate camera-ready package.
+The matching versioned synthetic dataset and measured outputs are published at [Zenodo DOI 10.5281/zenodo.21807669](https://doi.org/10.5281/zenodo.21807669). They are separate from this code repository.
 
-The versioned dataset is published on Zenodo at https://doi.org/10.5281/zenodo.21807669. The numerical claim verifier is kept with the paper-support results because it reads the separate Zenodo measured-result files.
+FC-Trace reconstructs only evidence represented in the finite circular ext4 fast-commit area. Kernel logging behaviour varies by workload and kernel version. Results from the controlled corpus do not establish universal recall or production accuracy.
 
-## License
+Use FC-Trace only on disk images that you are legally authorized to examine.
 
-The source code is available for research verification under the MIT License. Dataset files have their own CC BY 4.0 license in the Zenodo deposit.
+## Citation and license
+
+Code citation metadata is in `CITATION.cff`. The source code is released under the MIT License; dataset licensing is stated in the Zenodo record.
