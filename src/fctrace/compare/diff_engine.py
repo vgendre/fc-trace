@@ -25,7 +25,7 @@ Matching strategy (lenient):
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +50,16 @@ class EvaluationResult:
     runtime_s:       float = 0.0
     total_gt_events: int   = 0
     total_pred_events: int = 0
+    # Precision recomputed without the ground-truth event-type filter, i.e.
+    # counting support records (INODE_UPDATE, EXTENT_ADD) as false positives.
+    # None when not requested. Reporting both makes the filtered figure
+    # auditable instead of merely disclosed.
+    precision_unfiltered: Optional[float] = None
+    fp_unfiltered:        Optional[int]   = None
     notes:           List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d = {
             'method':            self.method,
             'scenario':          self.scenario,
             'tp':                self.tp,
@@ -69,6 +75,10 @@ class EvaluationResult:
             'total_pred_events': self.total_pred_events,
             'notes':             self.notes,
         }
+        if self.precision_unfiltered is not None:
+            d['precision_unfiltered'] = round(self.precision_unfiltered, 4)
+            d['fp_unfiltered'] = self.fp_unfiltered
+        return d
 
 
 # ---------------------------------------------------------------------------

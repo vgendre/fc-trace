@@ -1,175 +1,79 @@
-# FC-Trace
+# FC-Trace code release
 
-FC-Trace is a research prototype for parsing ext4 fast-commit records from raw disk images and reconstructing recent file-system metadata events. It targets post-mortem forensic triage of ext4 volumes formatted with `fast_commit` enabled.
+FC-Trace is a Python research tool for parsing ext4 fast-commit records from raw disk images and reconstructing ordered, integrity-checked forensic events.
 
-## Repository Contents
+## Code scope
 
-```text
-src/fctrace/              FC-Trace library and CLI
-tests/                    unit and integration tests
-scripts/                  dataset generation, real-image test, and scoring tools
-data/ground_truth/        ground-truth JSON for five scenarios
-data/raw_images/          local raw-image README and checksum manifest
-results/                  latest simulation and real-image evaluation JSON
-.github/workflows/        GitHub Actions test workflow
-Dockerfile                reproducible Linux test environment
-```
-
-The repository intentionally does not track raw `.img` files because each generated ext4 image is 512 MiB. Raw-image checksums from the latest local run are recorded in `data/raw_images/SHA256SUMS.txt`.
+This GitHub package contains the source code, tests, experiment harnesses, dataset-generation code, packaging metadata, and documentation. It does not contain the large raw disk images or measured result deposit. The corresponding synthetic dataset is published separately through Zenodo. The camera-ready manuscript is supplied separately as an Overleaf source package.
 
 ## Requirements
 
-- Linux kernel with ext4 fast-commit support, kernel >= 5.10
-- Python >= 3.10
-- `e2fsprogs` with `mkfs.ext4 -O fast_commit`
+- Linux kernel with ext4 fast-commit support for real-image experiments
+- Python 3.10 or newer
+- e2fsprogs with `mkfs.ext4 -O fast_commit`
 - Root privileges and loop devices only for real-image generation
-- Existing image analysis is read-only and does not require mounting the target image
 
-## Install
-
-```bash
-python3 -m pip install -e '.[dev]'
-```
-
-## Run Tests
+## Install and test
 
 ```bash
-pytest -q
-```
-
-Expected result for this artifact snapshot:
-
-```text
-56 passed
-```
-
-## Fresh GitHub Installation Check
-
-Use this sequence to verify that an authorized GitHub checkout installs and tests correctly. If the repository is private, enter your GitHub username and use a personal access token as the HTTPS password when prompted.
-
-```bash
-cd /tmp
-git clone https://github.com/vgendre/fc-trace.git fc-trace-github-test
-cd fc-trace-github-test
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e '.[dev]'
-pytest -q
+python3 -m pip install -e ".[dev]"
+python3 -m pytest -q
 fctrace --help
-python -m fctrace.cli --help
 ```
 
-Expected test result:
+The unit-test suite is the code-release check. Real-image experiments require the host prerequisites above and write their outputs to paths supplied by the user.
 
-```text
-56 passed
-```
-
-## Experiment Reproduction
-
-After the fresh installation check, reproduce the simulation experiment with:
+## Analyze an image
 
 ```bash
-python scripts/score_results.py --simulate --output results/evaluation.json
+python3 -m fctrace.cli path/to/disk.img \
+  --output-json /tmp/events.json \
+  --output-csv /tmp/events.csv \
+  --output-text /tmp/events.txt
 ```
 
-Reproduce the real-image experiment on a Linux host with ext4 fast-commit support, loop devices, and root privileges:
+The CLI opens the image read-only and never mounts the evidence image.
+
+## Generate the publication dataset
+
+The scripts `generate_dataset.py` and `run_real_image_tests.py` are included for reproducibility. The generated image files belong in the separate Zenodo dataset deposit and must not be committed to the GitHub repository.
 
 ```bash
-sudo python scripts/run_real_image_tests.py \
-  --output results/evaluation_realmode.json \
-  --snap-dir data/raw_images \
-  --gt-dir data/ground_truth \
+sudo python3 scripts/generate_dataset.py \
+  --output-dir ./generated/raw_images \
+  --gt-dir ./generated/ground_truth \
   --scenarios S1,S2,S3,S4,S5
 ```
 
-The real-image command creates 512 MiB loopback images and snapshots under `data/raw_images/`. These `.img` files are intentionally excluded from Git; only the checksum manifest and README are tracked.
-
-## Run FC-Trace
+To run the real-image evaluator after generation:
 
 ```bash
-python -m fctrace.cli path/to/disk.img \
-  --output-json outputs/fctrace_output.json \
-  --output-csv outputs/fctrace_output.csv \
-  --output-text outputs/fctrace_output.txt
-```
-
-## Simulation Evaluation
-
-Simulation mode validates parser and event-reconstruction behavior with canonical TLV buffers. It is not a real-image accuracy claim.
-
-```bash
-python scripts/score_results.py --simulate --output results/evaluation.json
-```
-
-Latest simulation results in `results/evaluation.json`: mean recall `1.000`, precision `1.000`, F1 `1.000`, ordering accuracy `0.790`, path recovery `1.000`.
-
-## Real-Image Evaluation
-
-Real-image generation requires root and loop-device support. This command creates five ext4 loopback images and five mounted-device snapshots under `data/raw_images/`, refreshes ground truth under `data/ground_truth/`, and writes `results/evaluation_realmode.json`.
-
-```bash
-sudo python scripts/run_real_image_tests.py \
-  --output results/evaluation_realmode.json \
-  --snap-dir data/raw_images \
-  --gt-dir data/ground_truth \
+sudo python3 scripts/run_real_image_tests.py \
+  --output ./generated/evaluation_realmode.json \
+  --snap-dir ./generated/raw_images \
+  --gt-dir ./generated/ground_truth \
   --scenarios S1,S2,S3,S4,S5
 ```
 
-Latest local real-image results, run on 2026-06-16:
+The evaluator requires Linux loop devices and root privileges. Existing raw images can be analyzed without mounting them.
 
-| Scenario | TP | FP | FN | Recall | Precision | F1 | Ordering | Path |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| S1_normal_workload | 5 | 1 | 1 | 0.8333 | 0.8333 | 0.8333 | 0.7500 | 1.0000 |
-| S2_crash_before_commit | 5 | 0 | 0 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
-| S3_antiforensic_burst | 10 | 0 | 20 | 0.3333 | 1.0000 | 0.5000 | 1.0000 | 1.0000 |
-| S4_shortlived_files | 9 | 0 | 15 | 0.3750 | 1.0000 | 0.5455 | 0.7500 | 1.0000 |
-| S5_deep_rename_tree | 3 | 0 | 3 | 0.5000 | 1.0000 | 0.6667 | 0.5000 | 1.0000 |
-
-Mean real-image metrics: recall `0.6083`, precision `0.9667`, F1 `0.7091`, ordering accuracy `0.8000`, path recovery `1.0000`.
-
-These are single-run loopback-image results on one host. Do not present them as multi-kernel, multi-run, or production-general accuracy claims.
-
-## Docker
+## Container verification
 
 ```bash
-docker build -t fc-trace:latest .
-docker run --rm fc-trace:latest pytest -q
+docker build -t fc-trace:1.0 .
+docker run --rm fc-trace:1.0 python3 -m fctrace.cli --help
 ```
 
-Real-image generation inside Docker requires `--privileged`:
+Dataset generation inside the container requires `--privileged` and a mounted output directory.
 
-```bash
-docker run --rm --privileged -v "$PWD":/work -w /work fc-trace:latest \
-  sudo python3 scripts/run_real_image_tests.py \
-  --output results/evaluation_realmode.json \
-  --snap-dir data/raw_images \
-  --gt-dir data/ground_truth \
-  --scenarios S1,S2,S3,S4,S5
-```
+## Publication artifacts
 
-## Evidence-Source Limits
+- GitHub: this code-only release.
+- Zenodo: synthetic raw images, ground truth, measured results, checksums, and provenance.
+- Overleaf: `main_camera_ready.tex` and the compiled seven-page PDF in the separate camera-ready package.
 
-Real-image tests show high precision in this harness, but recall is bounded by what the Linux kernel writes to the fast-commit area. In the tested kernel, directory creation is not emitted as a `CREAT` fast-commit dentry record, and deletion/truncation of files created within the same fast-commit window may not be logged as `UNLINK` or `DEL_RANGE`.
+The versioned dataset is published on Zenodo at https://doi.org/10.5281/zenodo.21807669. The numerical claim verifier is kept with the paper-support results because it reads the separate Zenodo measured-result files.
 
-## Ethics
+## License
 
-Use FC-Trace only on disk images you are legally authorized to examine. The included experiments use generated test images and no real user data.
-
-## Authors and Affiliation
-
-This research artifact is authored by Vinod Gendre and Nitesh K Bharadwaj, Department of Computer Science and Engineering, National Institute of Technology Raipur, India. Authors are listed in `AUTHORS.md`; citation metadata is provided in `CITATION.cff`.
-
-## Availability
-
-FC-Trace is intended for use in forensic investigations of disk images lawfully acquired through authorized processes, such as court orders or sanctioned incident response. All experiments in this study used only synthetic disk images and did not involve personal or proprietary data.
-
-The source code, evaluation scripts, synthetic datasets, and Dockerfile for environment setup are available from the authors upon reasonable academic request:
-
-https://github.com/vgendre/fc-trace
-
-The repository is not public for copyright reasons, but it will be shared for research verification of the results reported in the associated paper.
-
-## Copyright and License Status
-
-FC-Trace is original research software developed by the authors. The repository is not public for copyright reasons, but access may be provided for reasonable academic research verification. Copyright remains with the authors; see `LICENSE` for permitted use, redistribution, and warranty terms.
+The source code is available for research verification under the MIT License. Dataset files have their own CC BY 4.0 license in the Zenodo deposit.

@@ -20,10 +20,10 @@ Reference: fs/ext4/fast_commit.c  (ext4_fc_replay, ext4_fc_parse_*)
 """
 
 import logging
-import struct
 from dataclasses import dataclass, field
 from typing import Generator, List, Optional
 
+from fctrace.parser.crc32c import crc32c
 from fctrace.parser.fc_tags import (
     FCTag,
     TAG_TO_EVENT,
@@ -118,6 +118,11 @@ class FCRecord:
                  FCCommitHead, FCCommitTail, or None for PAD
     raw_value  : The undecoded value bytes (for debugging / future use)
     decode_error : Non-None if value parsing failed (tag still recorded)
+    crc_verified : TAIL records only. True if the stored CRC-32C matches the
+                 value accumulated over the fast commit, False if it does not
+                 (truncation, overwrite, or tampering), None if not checked.
+    crc_expected : CRC stored in the TAIL record (TAIL only)
+    crc_computed : CRC accumulated by the decoder (TAIL only)
     """
     tag:          FCTag
     event_type:   str
@@ -126,6 +131,9 @@ class FCRecord:
     payload:      object = None
     raw_value:    bytes = field(default=b'', repr=False)
     decode_error: Optional[str] = None
+    crc_verified: Optional[bool] = None
+    crc_expected: Optional[int] = None
+    crc_computed: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -140,11 +148,28 @@ class TLVDecoder:
     obtain a list of :class:`FCRecord` objects.
     """
 
-    def __init__(self, data: bytes) -> None:
+    def __init__(self, data: bytes, block_size: Optional[int] = None) -> None:
+        """
+        Parameters
+        ----------
+        data
+            Raw bytes of the fast-commit area.
+        block_size
+            Journal block size. Supply this whenever *data* came from a real
+            image: the kernel's on-disk layout is block-structured and cannot
+            be walked as a flat TLV stream (see :py:meth:`_iter_records`).
+            ``None`` decodes the buffer linearly, which is correct only for
+            densely-packed synthetic buffers such as those used in tests.
+        """
         self._data = data
         self._pos: int = 0
         self._current_tid: int = 0
+        self._block_size = block_size
+        self._fc_crc: int = 0
         self.records: List[FCRecord] = []
+        self.resync_count: int = 0
+        self.crc_failures: int = 0
+        self.crc_checked: int = 0
 
     # ------------------------------------------------------------------
     # Public API
@@ -169,8 +194,34 @@ class TLVDecoder:
     # Internal iteration
     # ------------------------------------------------------------------
 
+    def _next_block_boundary(self, offset: int) -> int:
+        """Byte offset of the first block strictly after the one holding *offset*."""
+        bs = self._block_size
+        return (offset // bs + 1) * bs
+
     def _iter_records(self) -> Generator[FCRecord, None, None]:
-        """Yield FCRecord objects from the buffer, advancing _pos."""
+        """
+        Yield FCRecord objects from the buffer, advancing _pos.
+
+        Block structure
+        ---------------
+        A real fast-commit area is not a flat TLV stream. Verified against
+        ``ext4_fc_replay_scan`` and ``ext4_fc_write_tail`` in
+        ``fs/ext4/fast_commit.c``:
+
+        * Each fast commit begins at a block boundary with a HEAD record.
+        * The kernel replays one block at a time (``end = start + j_blocksize``).
+        * TAIL is written with ``fc_len = bsize - off + sizeof(ext4_fc_tail)``,
+          deliberately oversized so the per-block scan loop terminates. Only
+          the leading ``sizeof(ext4_fc_tail)`` bytes are meaningful.
+
+        Trusting the TAIL length verbatim therefore advances 12 bytes past the
+        block boundary — exactly the size of the next commit's HEAD record —
+        which silently swallows every HEAD after the first and mis-attributes
+        every subsequent record to the wrong transaction. When *block_size* is
+        known we skip to the next block boundary instead, and resynchronise
+        there after an unknown or malformed tag.
+        """
         data = self._data
         dlen = len(data)
 
@@ -179,33 +230,57 @@ class TLVDecoder:
 
             # Peek at tag
             tag_raw, val_len = STRUCT_FC_TL.unpack_from(data, self._pos)
-            self._pos += STRUCT_FC_TL.size
+            value_start = offset + STRUCT_FC_TL.size
 
-            # Bounds check
-            if self._pos + val_len > dlen:
-                logger.debug(
-                    "Truncated TLV at offset 0x%X: tag=0x%X val_len=%d "
-                    "(only %d bytes remain)",
-                    offset, tag_raw, val_len, dlen - self._pos,
-                )
-                break
-
-            raw_value = data[self._pos: self._pos + val_len]
-            self._pos += val_len
-
-            # Resolve tag
+            # Resolve tag before consuming the value: TAIL's declared length is
+            # not the length of its payload.
             try:
                 tag = FCTag(tag_raw)
             except ValueError:
                 logger.debug(
-                    "Unknown FC tag 0x%X at offset 0x%X — skipping",
-                    tag_raw, offset,
+                    "Unknown FC tag 0x%X at offset 0x%X", tag_raw, offset,
                 )
+                if not self._resync(offset, dlen):
+                    break
                 continue
+
+            if tag == FCTag.TAIL:
+                # Only ext4_fc_tail (tid + crc) is real payload; the rest of
+                # the declared length is block padding.
+                if value_start + STRUCT_FC_TAIL.size > dlen:
+                    logger.debug("Truncated TAIL at offset 0x%X", offset)
+                    break
+                raw_value = data[value_start: value_start + STRUCT_FC_TAIL.size]
+                # The kernel folds in the TL header plus fc_tid, stopping short
+                # of fc_crc itself (offsetof(struct ext4_fc_tail, fc_crc)).
+                self._accumulate_crc(
+                    data[offset: value_start + STRUCT_FC_TAIL.size // 2]
+                )
+                if self._block_size:
+                    self._pos = self._next_block_boundary(offset)
+                else:
+                    self._pos = value_start + val_len
+            else:
+                # Bounds check
+                if value_start + val_len > dlen:
+                    logger.debug(
+                        "Truncated TLV at offset 0x%X: tag=0x%X val_len=%d "
+                        "(only %d bytes remain)",
+                        offset, tag_raw, val_len, dlen - value_start,
+                    )
+                    break
+                raw_value = data[value_start: value_start + val_len]
+                # A HEAD starts a new fast commit, so the accumulator restarts
+                # there; every other tag folds in its whole TLV.
+                if tag == FCTag.HEAD:
+                    self._fc_crc = 0
+                self._accumulate_crc(data[offset: value_start + val_len])
+                self._pos = value_start + val_len
 
             event_type = TAG_TO_EVENT.get(tag, 'UNKNOWN')
 
-            # Skip pure padding
+            # PAD contributes to the CRC (folded in above) but carries no
+            # forensic content.
             if tag == FCTag.PAD:
                 continue
 
@@ -218,7 +293,75 @@ class TLVDecoder:
             )
 
             self._decode_value(tag, raw_value, record)
+            if tag == FCTag.TAIL:
+                self._verify_tail_crc(record)
             yield record
+
+    # ------------------------------------------------------------------
+    # Integrity
+    # ------------------------------------------------------------------
+
+    def _accumulate_crc(self, chunk: bytes) -> None:
+        """Fold *chunk* into the running fast-commit CRC."""
+        if self._block_size:
+            self._fc_crc = crc32c(self._fc_crc, chunk)
+
+    def _verify_tail_crc(self, record: FCRecord) -> None:
+        """
+        Compare the CRC stored in a TAIL against the accumulated value.
+
+        A mismatch means the fast commit is not intact: it was truncated
+        mid-write, partially overwritten by a later wrap, or deliberately
+        altered. Either way the enclosing transaction should not be treated
+        as trustworthy evidence.
+
+        Only performed when the journal block size is known, because the CRC
+        is computed over the real block-structured layout.
+        """
+        if not self._block_size or not isinstance(record.payload, FCCommitTail):
+            self._fc_crc = 0
+            return
+
+        record.crc_expected = record.payload.crc
+        record.crc_computed = self._fc_crc
+        record.crc_verified = record.crc_expected == record.crc_computed
+
+        self.crc_checked += 1
+        if not record.crc_verified:
+            self.crc_failures += 1
+            logger.warning(
+                "Fast-commit CRC mismatch at offset 0x%X (tid=%d): "
+                "stored 0x%08X, computed 0x%08X — commit is not intact",
+                record.offset, record.payload.tid,
+                record.crc_expected, record.crc_computed,
+            )
+
+        # The kernel resets the accumulator after each TAIL.
+        self._fc_crc = 0
+
+    def _resync(self, offset: int, dlen: int) -> bool:
+        """
+        Recover from an undecodable tag.
+
+        Stale fast-commit blocks left over from earlier wraps contain arbitrary
+        bytes, so a garbage length field would desynchronise a linear walk for
+        the remainder of the buffer. With a known block size we restart at the
+        next block boundary, where a fast commit may legitimately begin.
+        Returns False when no further block is available.
+        """
+        if not self._block_size:
+            # No block structure to fall back on; skip the header and hope the
+            # stream realigns.
+            self._pos = offset + STRUCT_FC_TL.size
+            return self._pos <= dlen - STRUCT_FC_TL.size
+
+        nxt = self._next_block_boundary(offset)
+        if nxt > dlen - STRUCT_FC_TL.size:
+            return False
+        self._pos = nxt
+        self.resync_count += 1
+        logger.debug("Resynchronised to block boundary at offset 0x%X", nxt)
+        return True
 
     def _decode_value(
         self, tag: FCTag, raw: bytes, record: FCRecord
@@ -338,12 +481,15 @@ class TLVDecoder:
 # Convenience function
 # ---------------------------------------------------------------------------
 
-def decode_fc_buffer(data: bytes) -> List[FCRecord]:
+def decode_fc_buffer(
+    data: bytes, block_size: Optional[int] = None
+) -> List[FCRecord]:
     """
     Decode *data* (the raw fast-commit area) and return all FCRecords.
 
-    Filters out PAD records automatically.
+    Pass *block_size* whenever the buffer came from a real image; see
+    :py:class:`TLVDecoder`. Filters out PAD records automatically.
     """
-    decoder = TLVDecoder(data)
+    decoder = TLVDecoder(data, block_size=block_size)
     all_records = decoder.decode()
     return [r for r in all_records if r.tag != FCTag.PAD]

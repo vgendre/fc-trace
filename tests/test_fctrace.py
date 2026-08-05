@@ -17,7 +17,6 @@ import json
 import os
 import struct
 import sys
-import tempfile
 
 import pytest
 
@@ -30,11 +29,18 @@ from fctrace.parser.fc_tags import (
     STRUCT_FC_DENTRY, STRUCT_FC_RANGE_INO, STRUCT_EXT4_EXTENT,
     STRUCT_FC_DEL_RANGE, STRUCT_FC_INODE_INO,
     EXT4_SUPER_MAGIC, EXT4_FEATURE_COMPAT_FAST_COMMIT,
-    SB_OFF_JOURNAL_INUM, SB_OFF_INODE_SIZE,
-    SB_OFF_FEATURE_COMPAT, SB_OFF_MAGIC,
+    EXT4_FEATURE_INCOMPAT_64BIT,
+    SB_OFF_JOURNAL_INUM, SB_OFF_INODE_SIZE, SB_OFF_DESC_SIZE,
+    SB_OFF_FEATURE_COMPAT, SB_OFF_FEATURE_INCOMPAT, SB_OFF_MAGIC,
+    SB_OFF_INODES_PER_GROUP,
     TAG_TO_EVENT,
 )
-from fctrace.parser.tlv_decoder import TLVDecoder, decode_fc_buffer
+from fctrace.parser.crc32c import (
+    crc32c, crc32c_standard, self_test, CRC32C_CHECK_VECTOR,
+)
+from fctrace.parser.tlv_decoder import decode_fc_buffer
+from fctrace.io.image_reader import Ext4Image
+from fctrace.io.journal_reader import _parse_extent_tree, JournalReadError
 from fctrace.reconstruct.event_builder import (
     EventBuilder, CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, CONFIDENCE_LOW,
 )
@@ -538,7 +544,7 @@ class TestImageReaderErrors:
     def test_missing_image_raises(self):
         from fctrace.io.image_reader import Ext4Image, ImageReadError
         with pytest.raises(ImageReadError):
-            with Ext4Image('/nonexistent/path/to/image.img') as img:
+            with Ext4Image('/nonexistent/path/to/image.img'):
                 pass
 
     def test_wrong_magic_raises(self, tmp_path):
@@ -547,11 +553,11 @@ class TestImageReaderErrors:
         fake = tmp_path / 'bad.img'
         fake.write_bytes(b'\x00' * 2048)
         with pytest.raises(ImageReadError, match="Not an ext4 filesystem"):
-            with Ext4Image(str(fake)) as img:
+            with Ext4Image(str(fake)):
                 pass
 
     def test_valid_magic_accepted(self, tmp_path):
-        from fctrace.io.image_reader import Ext4Image, ImageReadError, EXT4_SUPERBLOCK_OFFSET
+        from fctrace.io.image_reader import Ext4Image, EXT4_SUPERBLOCK_OFFSET
         # Craft a minimal superblock with correct magic
         sb = bytearray(1024)
         struct.pack_into('<H', sb, 0x38, 0xEF53)   # s_magic
@@ -642,6 +648,374 @@ class TestIntegration:
 
         assert result_fc.recall > result_b1.recall
         assert result_fc.tp     > result_b1.tp
+
+
+# ─────────────────────────────────────────────────────────────
+# 7. Block-structured decoding (real on-disk layout)
+# ─────────────────────────────────────────────────────────────
+#
+# A real fast-commit area is block-structured, not a densely packed TLV
+# stream. Verified against fs/ext4/fast_commit.c (ext4_fc_write_tail,
+# ext4_fc_replay_scan) AND against bytes captured from a live kernel
+# (6.18.33.1, e2fsprogs 1.47.0):
+#
+#   * A fast commit starts at a block boundary. HEAD is written only for the
+#     first commit of a JBD2 transaction; later commits in the same
+#     transaction begin directly with a data record.
+#   * TAIL pads the record out to end EXACTLY on the next block boundary.
+#     ext4_fc_write_tail reads `off = s_fc_bytes % bsize` AFTER
+#     ext4_fc_reserve_space has already consumed the 12 bytes for this tag,
+#     so the stored length works out to `bsize - off_of_tag_header - 4`.
+#     Measured on a live capture: tag header at 572 carries fc_len 3520, and
+#     572 + 4 + 3520 = 4096.
+
+FC_BS = 4096   # journal block size used by these fixtures
+
+
+def make_block_commit(tid, files, block_size=FC_BS, with_crc=True,
+                      with_head=True):
+    """Build one block-aligned fast commit exactly as the kernel writes it."""
+    crc = 0
+    blk = b''
+    if with_head:
+        blk = make_head(tid)
+        if with_crc:
+            crc = crc32c(crc, blk)
+
+    for parent, ino, name in files:
+        rec = make_creat(parent, ino, name)
+        if with_crc:
+            crc = crc32c(crc, rec)
+        blk += rec
+
+    off = len(blk)                      # offset of the TAIL's TL header
+    fc_len = block_size - off - STRUCT_FC_TL.size
+    tail_hdr = STRUCT_FC_TL.pack(int(FCTag.TAIL), fc_len)
+    tid_bytes = tid.to_bytes(4, 'little')
+    if with_crc:
+        # CRC stops at offsetof(struct ext4_fc_tail, fc_crc)
+        crc = crc32c(crc, tail_hdr + tid_bytes)
+    blk += tail_hdr + tid_bytes + crc.to_bytes(4, 'little')
+
+    assert len(blk) <= block_size
+    # The TAIL record itself is declared to run to the block boundary.
+    assert off + STRUCT_FC_TL.size + fc_len == block_size
+    return blk + b'\x00' * (block_size - len(blk))
+
+
+class TestBlockStructuredDecoding:
+
+    def test_tail_record_ends_on_block_boundary(self):
+        """
+        Pins the on-disk TAIL length convention against a live capture.
+        If a future kernel changes it, this fails loudly rather than
+        silently desynchronising the decoder.
+        """
+        area = make_block_commit(50, [(2, 300, 'f.txt')])
+        recs = decode_fc_buffer(area, block_size=FC_BS)
+        tail = next(r for r in recs if r.tag == FCTag.TAIL)
+        _tag, fc_len = STRUCT_FC_TL.unpack_from(area, tail.offset)
+        assert tail.offset + STRUCT_FC_TL.size + fc_len == FC_BS
+
+    def test_all_heads_recovered_across_commits(self):
+        """Every fast commit's HEAD must survive, not just the first."""
+        area = b''.join(
+            make_block_commit(50 + i, [(2, 300 + i, f'f{i}.txt')])
+            for i in range(5)
+        )
+        recs = decode_fc_buffer(area, block_size=FC_BS)
+        heads = [r for r in recs if r.tag == FCTag.HEAD]
+        assert len(heads) == 5
+
+    def test_transaction_ids_not_collapsed(self):
+        area = b''.join(
+            make_block_commit(50 + i, [(2, 300 + i, f'f{i}.txt')])
+            for i in range(5)
+        )
+        recs = decode_fc_buffer(area, block_size=FC_BS)
+        assert sorted({r.tid for r in recs}) == [50, 51, 52, 53, 54]
+
+    def test_headless_continuation_commits_keep_transaction_id(self):
+        """
+        Real kernels emit HEAD only for the first fast commit of a JBD2
+        transaction; later commits in the same transaction start directly
+        with a data record. Observed on kernel 6.18: one HEAD, five TAILs,
+        all records under a single tid.
+        """
+        area = make_block_commit(7, [(2, 400, 'first.txt')], with_head=True)
+        for i in range(3):
+            area += make_block_commit(
+                7, [(2, 401 + i, f'cont{i}.txt')], with_head=False)
+        recs = decode_fc_buffer(area, block_size=FC_BS)
+        assert sum(1 for r in recs if r.tag == FCTag.HEAD) == 1
+        assert sum(1 for r in recs if r.tag == FCTag.TAIL) == 4
+        names = [r.payload.name for r in recs
+                 if r.tag == FCTag.CREAT and r.payload]
+        assert names == ['first.txt', 'cont0.txt', 'cont1.txt', 'cont2.txt']
+        assert {r.tid for r in recs} == {7}
+
+    def test_events_grouped_into_distinct_transactions(self):
+        area = b''.join(
+            make_block_commit(50 + i, [(2, 300 + i, f'f{i}.txt')])
+            for i in range(5)
+        )
+        recs = decode_fc_buffer(area, block_size=FC_BS)
+        evs = EventBuilder(recs).build()
+        creates = [e for e in evs if e.event_type == 'CREATE']
+        assert len(creates) == 5
+        assert len({e.tid for e in creates}) == 5
+
+    def test_packed_buffer_still_decodes_without_block_size(self):
+        """Synthetic densely-packed buffers must keep working."""
+        buf = simple_buf(1, [make_creat(2, 11, 'a.txt')])
+        recs = decode_fc_buffer(buf)
+        assert any(r.tag == FCTag.CREAT for r in recs)
+
+    def test_resync_after_garbage_tag(self):
+        """A corrupt block must not poison the blocks after it."""
+        good = make_block_commit(60, [(2, 400, 'before.txt')])
+        garbage = b'\xAB\xCD\xFF\xFF' + b'\x00' * (FC_BS - 4)
+        after = make_block_commit(62, [(2, 402, 'after.txt')])
+        recs = decode_fc_buffer(good + garbage + after, block_size=FC_BS)
+        names = [r.payload.name for r in recs
+                 if r.tag == FCTag.CREAT and r.payload]
+        assert 'before.txt' in names
+        assert 'after.txt' in names, "decoder failed to resynchronise"
+
+
+# ─────────────────────────────────────────────────────────────
+# 8. Fast-commit integrity (CRC-32C)
+# ─────────────────────────────────────────────────────────────
+
+class TestCRC32C:
+
+    def test_matches_published_check_vector(self):
+        """CRC-32C of '123456789' is 0xE3069283 (init 0xFFFFFFFF, final xor)."""
+        assert crc32c_standard(b'123456789') == CRC32C_CHECK_VECTOR
+        assert self_test()
+
+    def test_differs_from_ieee_crc32(self):
+        """ext4 uses Castagnoli, not the zlib/IEEE polynomial."""
+        import zlib
+        assert crc32c(0, b'123456789') != zlib.crc32(b'123456789')
+
+    def test_chaining_equals_one_shot(self):
+        """ext4_fc_replay_scan accumulates across records; chaining must hold."""
+        a, b = b'hello ', b'fast commit'
+        assert crc32c(crc32c(0, a), b) == crc32c(0, a + b)
+
+
+class TestCommitIntegrity:
+
+    def test_intact_commit_verifies(self):
+        area = make_block_commit(70, [(2, 500, 'intact.log')])
+        recs = decode_fc_buffer(area, block_size=FC_BS)
+        tail = next(r for r in recs if r.tag == FCTag.TAIL)
+        assert tail.crc_verified is True
+        assert tail.crc_expected == tail.crc_computed
+
+    def test_tampered_commit_detected(self):
+        area = make_block_commit(71, [(2, 501, 'evidence.log')])
+        idx = area.index(b'evidence.log')
+        tampered = area[:idx] + b'X' + area[idx + 1:]
+        recs = decode_fc_buffer(tampered, block_size=FC_BS)
+        tail = next(r for r in recs if r.tag == FCTag.TAIL)
+        assert tail.crc_verified is False
+        assert tail.crc_expected != tail.crc_computed
+
+    def test_tampering_localised_to_one_commit(self):
+        area = b''.join(
+            make_block_commit(80 + i, [(2, 600 + i, f'ev_{i}.log')])
+            for i in range(4)
+        )
+        idx = area.index(b'ev_2.log')
+        tampered = area[:idx] + b'X' + area[idx + 1:]
+        recs = decode_fc_buffer(tampered, block_size=FC_BS)
+        bad = [r for r in recs if r.tag == FCTag.TAIL and not r.crc_verified]
+        assert len(bad) == 1
+        assert bad[0].payload.tid == 82
+
+    def test_crc_not_checked_without_block_size(self):
+        """Verification needs the real block layout; otherwise stay silent."""
+        buf = simple_buf(1, [make_creat(2, 11, 'a.txt')])
+        recs = decode_fc_buffer(buf)
+        tails = [r for r in recs if r.tag == FCTag.TAIL]
+        assert all(r.crc_verified is None for r in tails)
+
+    def test_failed_crc_downgrades_confidence(self):
+        area = make_block_commit(90, [(2, 700, 'evidence.log')])
+        idx = area.index(b'evidence.log')
+        tampered = area[:idx] + b'X' + area[idx + 1:]
+        recs = decode_fc_buffer(tampered, block_size=FC_BS)
+        evs = EventBuilder(recs).build()
+        assert evs, "expected at least one event"
+        assert all(e.confidence == CONFIDENCE_LOW for e in evs)
+        assert all(e.crc_status == 'failed' for e in evs)
+
+    def test_verified_crc_keeps_high_confidence(self):
+        area = make_block_commit(91, [(2, 701, 'clean.log')])
+        recs = decode_fc_buffer(area, block_size=FC_BS)
+        evs = EventBuilder(recs).build()
+        assert all(e.crc_status == 'verified' for e in evs)
+        assert all(e.confidence == CONFIDENCE_HIGH for e in evs)
+
+
+# ─────────────────────────────────────────────────────────────
+# 9. Confidence model matches its documented branches
+# ─────────────────────────────────────────────────────────────
+
+class TestConfidenceModel:
+
+    def test_heuristic_fc_area_caps_confidence(self):
+        """
+        The documented model demotes anything decoded from a heuristically
+        located FC area; previously documented but never implemented.
+        """
+        buf = simple_buf(1, [make_creat(2, 11, 'a.txt')])
+        recs = decode_fc_buffer(buf)
+        normal = EventBuilder(recs, fc_area_heuristic=False).build()
+        guessed = EventBuilder(recs, fc_area_heuristic=True).build()
+        assert all(e.confidence == CONFIDENCE_HIGH for e in normal)
+        assert all(e.confidence == CONFIDENCE_LOW for e in guessed)
+
+    def test_crc_status_serialised(self):
+        buf = simple_buf(1, [make_creat(2, 11, 'a.txt')])
+        evs = EventBuilder(decode_fc_buffer(buf)).build()
+        assert evs[0].to_dict()['crc_status'] == 'unchecked'
+
+
+# ─────────────────────────────────────────────────────────────
+# 10. Event emission order
+# ─────────────────────────────────────────────────────────────
+
+class TestEmissionOrder:
+
+    def test_rename_not_hoisted_ahead_of_create(self):
+        """
+        Regression: inferred RENAMEs were paired in a first pass and emitted
+        before every CREATE/UNLINK/LINK, so a RENAME preceded the CREATE of
+        the same file and the ordering metric scored it as a reversal.
+        """
+        buf = simple_buf(1, [
+            make_creat(2, 11, 'a.txt'),
+            make_rename(2, 11, 'a.txt', 2, 'b.txt'),
+        ])
+        evs = EventBuilder(decode_fc_buffer(buf)).build()
+        types = [e.event_type for e in evs]
+        assert types.index('CREATE') < types.index('RENAME')
+
+    def test_events_follow_on_disk_record_order(self):
+        buf = simple_buf(1, [
+            make_creat(2, 11, 'a.txt'),
+            make_creat(2, 12, 'b.txt'),
+            make_rename(2, 11, 'a.txt', 2, 'renamed.txt'),
+            make_creat(2, 13, 'c.txt'),
+        ])
+        evs = EventBuilder(decode_fc_buffer(buf)).build()
+        offsets = [min(e.fc_offsets) for e in evs]
+        assert offsets == sorted(offsets)
+
+    def test_ordering_accuracy_is_perfect_for_faithful_replay(self):
+        """Decoding a buffer we generated must not lose ordering to an artifact."""
+        buf = simple_buf(1, [
+            make_creat(2, 11, 'a.txt'),
+            make_rename(2, 11, 'a.txt', 2, 'b.txt'),
+        ])
+        evs = [e.to_dict() for e in EventBuilder(decode_fc_buffer(buf)).build()]
+        gt = [
+            gt_event('CREATE', 11, name='a.txt'),
+            gt_event('RENAME', 11, name='a.txt', new_name='b.txt', new_parent=2),
+        ]
+        res = DiffEngine(gt, evs, method='FC-Trace', scenario='order').evaluate()
+        assert res.ordering_acc == 1.0
+
+
+# ─────────────────────────────────────────────────────────────
+# 11. Group descriptor sizing and extent-tree walking
+# ─────────────────────────────────────────────────────────────
+
+def _ext_header(entries, depth):
+    return struct.pack('<HHHHI', 0xF30A, entries, 4, depth, 0)
+
+
+def _ext_leaf(lblk, plen, pblk):
+    return STRUCT_EXT4_EXTENT.pack(lblk, plen, pblk >> 32, pblk & 0xFFFFFFFF)
+
+
+class TestExtentTree:
+
+    def test_multiple_leaf_extents_all_returned(self):
+        """A fragmented journal must not be truncated to its first extent."""
+        node = (_ext_header(3, 0)
+                + _ext_leaf(0,   10, 1000)
+                + _ext_leaf(10,  10, 5000)
+                + _ext_leaf(20,  10, 9000))
+        exts = _parse_extent_tree(None, node)
+        assert exts == [(0, 1000, 10), (10, 5000, 10), (20, 9000, 10)]
+
+    def test_uninitialised_extent_length_normalised(self):
+        node = _ext_header(1, 0) + _ext_leaf(0, 32768 + 7, 1000)
+        exts = _parse_extent_tree(None, node)
+        assert exts[0][2] == 7
+
+    def test_bad_magic_rejected(self):
+        node = struct.pack('<HHHHI', 0x1234, 1, 4, 0, 0) + _ext_leaf(0, 1, 1)
+        with pytest.raises(JournalReadError):
+            _parse_extent_tree(None, node)
+
+    def test_depth_one_tree_followed(self):
+        """Index nodes must be read from disk and their leaves collected."""
+        leaf_block_no = 77
+        leaf = _ext_header(2, 0) + _ext_leaf(0, 4, 2000) + _ext_leaf(4, 4, 8000)
+
+        class FakeImg:
+            def read_block(self, n):
+                assert n == leaf_block_no
+                return leaf + b'\x00' * 100
+
+        # struct ext4_extent_idx: ei_block(4), ei_leaf_lo(4), ei_leaf_hi(2), unused(2)
+        idx = struct.pack('<IIHH', 0, leaf_block_no, 0, 0)
+        root = _ext_header(1, 1) + idx
+        exts = _parse_extent_tree(FakeImg(), root)
+        assert exts == [(0, 2000, 4), (4, 8000, 4)]
+
+
+class TestGroupDescriptorSize:
+
+    def _image_with(self, tmp_path, incompat, desc_size):
+        """Minimal image whose superblock advertises a given descriptor size."""
+        sb = bytearray(1024)
+        struct.pack_into('<H', sb, SB_OFF_MAGIC, EXT4_SUPER_MAGIC)
+        struct.pack_into('<I', sb, 0x18, 2)              # 4 KiB blocks
+        struct.pack_into('<I', sb, SB_OFF_INODES_PER_GROUP, 8192)
+        struct.pack_into('<I', sb, SB_OFF_FEATURE_INCOMPAT, incompat)
+        struct.pack_into('<H', sb, SB_OFF_INODE_SIZE, 256)
+        struct.pack_into('<H', sb, SB_OFF_DESC_SIZE, desc_size)
+        p = tmp_path / 'sb.img'
+        p.write_bytes(b'\x00' * 1024 + bytes(sb) + b'\x00' * 8192)
+        return p
+
+    def test_64bit_uses_s_desc_size(self, tmp_path):
+        p = self._image_with(tmp_path, EXT4_FEATURE_INCOMPAT_64BIT, 64)
+        with Ext4Image(p) as img:
+            assert img.has_64bit is True
+            assert img.desc_size == 64
+
+    def test_without_64bit_descriptors_are_32_bytes(self, tmp_path):
+        """
+        Regression: descriptor size was hardcoded to 64, which mis-locates
+        every inode -- including the journal inode -- on a volume built
+        without -O 64bit.
+        """
+        p = self._image_with(tmp_path, 0, 64)
+        with Ext4Image(p) as img:
+            assert img.has_64bit is False
+            assert img.desc_size == 32
+
+    def test_64bit_with_zero_desc_size_falls_back(self, tmp_path):
+        p = self._image_with(tmp_path, EXT4_FEATURE_INCOMPAT_64BIT, 0)
+        with Ext4Image(p) as img:
+            assert img.desc_size == 64
 
 
 # ─────────────────────────────────────────────────────────────

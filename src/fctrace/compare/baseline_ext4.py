@@ -21,13 +21,11 @@ Each baseline returns a list of dicts with the same keys as
 ForensicEvent.to_dict() so that diff_engine can compare them uniformly.
 """
 
-import json
 import logging
 import shutil
 import struct
 import subprocess
-from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +77,7 @@ class InodeOnlyAnalyzer:
     def analyze(self) -> List[Dict[str, Any]]:
         """Return list of inode-only result dicts."""
         # Lazy import to avoid circular dependencies at module level
-        from fctrace.io.image_reader import Ext4Image, ImageReadError
+        from fctrace.io.image_reader import Ext4Image
 
         results: List[Dict[str, Any]] = []
 
@@ -98,13 +96,13 @@ class InodeOnlyAnalyzer:
         For each inode: if allocated, emit INODE_ALLOCATED; if the inode
         has data but is not in any directory (orphan), emit ORPHAN_INODE.
         """
-        from fctrace.io.image_reader import EXT4_GROUP_DESC_SIZE_64
         results = []
 
         bs = img.block_size
         ipg = img.inodes_per_group
         inode_size = img.inode_size
         first_data_block = img.first_data_block
+        desc_size = img.desc_size
 
         # Number of block groups = ceil(total_inodes / inodes_per_group)
         sb = img._sb_bytes
@@ -114,18 +112,25 @@ class InodeOnlyAnalyzer:
         gdt_block = first_data_block + 1
 
         for g in range(num_groups):
-            gd_off = gdt_block * bs + g * EXT4_GROUP_DESC_SIZE_64
+            gd_off = gdt_block * bs + g * desc_size
             try:
-                gd = img.read_bytes(gd_off, EXT4_GROUP_DESC_SIZE_64)
+                gd = img.read_bytes(gd_off, desc_size)
             except Exception:  # noqa: BLE001
                 continue
 
+            # The _hi halves exist only in 64-byte (64bit) descriptors.
+            has_hi = desc_size >= 0x2C
+
             inode_bitmap_lo = struct.unpack_from('<I', gd, 0x04)[0]
-            inode_bitmap_hi = struct.unpack_from('<I', gd, 0x24)[0]
+            inode_bitmap_hi = (
+                struct.unpack_from('<I', gd, 0x24)[0] if has_hi else 0
+            )
             inode_bitmap_block = (inode_bitmap_hi << 32) | inode_bitmap_lo
 
             inode_table_lo = struct.unpack_from('<I', gd, 0x08)[0]
-            inode_table_hi = struct.unpack_from('<I', gd, 0x28)[0]
+            inode_table_hi = (
+                struct.unpack_from('<I', gd, 0x28)[0] if has_hi else 0
+            )
             inode_table_block = (inode_table_hi << 32) | inode_table_lo
 
             try:
@@ -197,8 +202,8 @@ class JournalOnlyAnalyzer:
         self._image_path = image_path
 
     def analyze(self) -> List[Dict[str, Any]]:
-        from fctrace.io.image_reader import Ext4Image, ImageReadError
-        from fctrace.io.journal_reader import JournalReader, JournalReadError
+        from fctrace.io.image_reader import Ext4Image
+        from fctrace.io.journal_reader import JournalReader
 
         results: List[Dict[str, Any]] = []
         try:

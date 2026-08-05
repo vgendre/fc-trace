@@ -44,8 +44,7 @@ from fctrace.compare.baseline_ext4 import (
 )
 from fctrace.parser.fc_tags import (
     FCTag, STRUCT_FC_TL, STRUCT_FC_HEAD, STRUCT_FC_TAIL,
-    STRUCT_FC_DENTRY, STRUCT_FC_RANGE_INO, STRUCT_EXT4_EXTENT,
-    STRUCT_FC_DEL_RANGE,
+    STRUCT_FC_DENTRY, STRUCT_FC_DEL_RANGE,
 )
 from fctrace.parser.tlv_decoder import decode_fc_buffer
 from fctrace.reconstruct.event_builder import EventBuilder
@@ -100,7 +99,8 @@ def _build_simulation_scenarios():
     buf = b''
     gt  = []
     for i in range(10):
-        ino = 50 + i; name = f'secret_{i}.bin'
+        ino = 50 + i
+        name = f'secret_{i}.bin'
         buf += _head(20+i) + _creat(2,ino,name) + _del_r(ino) + _unlink(2,ino,name) + _tail(20+i)
         gt  += [_gt('CREATE',ino,n=name), _gt('EXTENT_DEL',ino), _gt('UNLINK',ino,n=name)]
     scenarios['S3_antiforensic_burst'] = {'buf': buf, 'gt': gt, 'crash': False}
@@ -109,7 +109,9 @@ def _build_simulation_scenarios():
     buf = b''
     gt  = []
     for i in range(8):
-        ino=80+i; src=f'tmp_{i}_src.tmp'; dst=f'tmp_{i}_dst.tmp'
+        ino = 80 + i
+        src = f'tmp_{i}_src.tmp'
+        dst = f'tmp_{i}_dst.tmp'
         buf += _head(30+i)+_creat(2,ino,src)+_rename(2,2,ino,src,dst)+_unlink(2,ino,dst)+_tail(30+i)
         gt  += [_gt('CREATE',ino,n=src), _gt('RENAME',ino,n=src,nn=dst,np=2), _gt('UNLINK',ino,n=dst)]
     scenarios['S4_shortlived_files'] = {'buf': buf, 'gt': gt, 'crash': False}
@@ -145,7 +147,8 @@ def run_fc_trace_on_image(image_path: str) -> tuple:
         jr = JournalReader(img)
         jr.open()
         buf = jr.read_fc_area()
-    recs   = decode_fc_buffer(buf)
+        bs = (jr.jbd2_sb.block_size if jr.jbd2_sb else 0) or img.block_size
+    recs   = decode_fc_buffer(buf, block_size=bs)
     events = [e.to_dict() for e in EventBuilder(recs).build()]
     return events, time.perf_counter() - t0
 
@@ -168,6 +171,29 @@ def run_baseline_on_image(image_path: str, baseline_name: str) -> tuple[List[dic
         logger.warning("%s failed on %s: %s", baseline_name, image_path, exc)
         events = []
     return events, time.perf_counter() - t0
+
+
+def _add_unfiltered_precision(
+    res: EvaluationResult, gt: List[dict], pred_all: List[dict]
+) -> None:
+    """
+    Recompute precision against the *unfiltered* prediction list.
+
+    The headline metrics score only event classes present in the scenario's
+    ground truth, so support records FC-Trace legitimately emits
+    (INODE_UPDATE, EXTENT_ADD) are excluded rather than counted against it.
+    That is defensible, but a comparison table against tools that receive no
+    equivalent concession needs the unfiltered figure too.
+    """
+    strict = DiffEngine(gt, pred_all, method=res.method,
+                        scenario=res.scenario).evaluate()
+    res.precision_unfiltered = strict.precision
+    res.fp_unfiltered = strict.fp
+    res.notes.append(
+        f'Unfiltered precision {strict.precision:.4f} '
+        f'(FP={strict.fp} counting support records); '
+        f'filtered precision {res.precision:.4f} (FP={res.fp}).'
+    )
 
 
 def _filter_to_gt_event_types(predicted: List[dict], gt: List[dict]) -> List[dict]:
@@ -229,6 +255,14 @@ def _simulate_baseline_predictions(sc_id: str, gt: List[dict]) -> Dict[str, List
 
 def _print_table(all_results: List[EvaluationResult]) -> None:
     """Print a formatted metric table to stdout."""
+    # Box-drawing characters are not encodable on a legacy Windows console
+    # (cp1252). Reconfigure stdout rather than let the crash abort the run
+    # before results are written.
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except (AttributeError, OSError):
+        pass
+
     hdr = f"  {'Scenario':<30}{'Method':<14}{'R':>6}{'P':>6}{'F1':>6}{'Ord':>6}{'Path':>6}  "
     W = len(hdr)
     title = "  FC-TRACE EVALUATION RESULTS"
@@ -280,6 +314,10 @@ def main() -> int:
                         help='In --simulate mode, also print capability-model baseline rows')
     parser.add_argument('--include-baselines', action='store_true',
                         help='In real-image mode, also run exploratory baseline analyzers')
+    parser.add_argument('--strict-precision', action='store_true',
+                        help='Also report precision without the ground-truth '
+                             'event-type filter, counting support records '
+                             '(INODE_UPDATE, EXTENT_ADD) as false positives')
     parser.add_argument('--images-dir', default='data/raw_images',
                         help='Directory containing *.img scenario images')
     parser.add_argument('--gt-dir', default='data/ground_truth',
@@ -308,6 +346,8 @@ def main() -> int:
             pred_eval = _filter_to_gt_event_types(pred, gt)
             fc_res = DiffEngine(gt, pred_eval, method='FC-Trace',
                                 scenario=sc_name, runtime_s=rt).evaluate()
+            if args.strict_precision:
+                _add_unfiltered_precision(fc_res, gt, pred)
             all_results.append(fc_res)
 
             if args.include_simulated_baselines:
@@ -349,6 +389,8 @@ def main() -> int:
             pred_eval = _filter_to_gt_event_types(pred, gt)
             fc_res = DiffEngine(gt, pred_eval, method='FC-Trace',
                                 scenario=sc_name, runtime_s=rt).evaluate()
+            if args.strict_precision:
+                _add_unfiltered_precision(fc_res, gt, pred)
             all_results.append(fc_res)
 
             if args.include_baselines:
