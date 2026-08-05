@@ -58,3 +58,4 @@ jobs:
         run: pip install ruff
       - name: Run ruff (errors only)
         run: ruff check src/ tests/ scripts/ --select E,F --ignore E501
+

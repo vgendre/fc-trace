@@ -24,6 +24,8 @@ Design notes
 - JBD2 on-disk values are big-endian; ext4 values are little-endian.
 """
 
+from __future__ import annotations
+
 import logging
 import struct
 from typing import List, Tuple
@@ -104,47 +106,96 @@ class JBD2SuperBlock:
         )
 
 
-def _first_extent_block(inode_bytes: bytes) -> Tuple[int, int]:
+# Extent tree on-disk constants (Documentation/filesystems/ext4/ifork.rst)
+EXT4_EXT_MAGIC       = 0xF30A
+EXT4_EXT_HEADER_SIZE = 12
+EXT4_EXT_ENTRY_SIZE  = 12
+# ee_len above this marks an uninitialised extent; real length is ee_len - 32768.
+EXT4_INIT_MAX_LEN    = 32768
+# Guard against a corrupt or hostile tree sending the walker into a loop.
+EXT4_EXT_MAX_DEPTH   = 5
+
+
+def _parse_extent_tree(
+    img: Ext4Image,
+    node: bytes,
+    depth_budget: int = EXT4_EXT_MAX_DEPTH,
+) -> List[Tuple[int, int, int]]:
     """
-    Parse the first leaf extent from the inode's extent tree.
+    Walk an ext4 extent tree and return its leaf extents.
 
-    For a freshly created journal (a single contiguous extent), this
-    gives us the physical start block and the block count.
+    *node* is either the 60-byte ``i_block`` region of an inode or the
+    contents of an extent-tree index block. Returns a list of
+    ``(logical_block, physical_block, length)`` triples sorted by logical
+    block.
 
-    Returns (physical_start_block, block_count).
+    A journal created by ``mkfs`` is normally one contiguous extent, but on
+    an aged filesystem it can be fragmented across several extents or pushed
+    into a multi-level tree. Reading only the first extent silently yields
+    wrong physical addresses for everything after the first fragment.
+
+    Layout, extent header (12 bytes):
+        0x00 uint16 eh_magic (0xF30A)   0x02 uint16 eh_entries
+        0x04 uint16 eh_max              0x06 uint16 eh_depth (0 = leaf)
+        0x08 uint32 eh_generation
+    Leaf entry, struct ext4_extent (12 bytes):
+        ee_block(4), ee_len(2), ee_start_hi(2), ee_start_lo(4)
+    Index entry, struct ext4_extent_idx (12 bytes):
+        ei_block(4), ei_leaf_lo(4), ei_leaf_hi(2), ei_unused(2)
     """
-    # The 60-byte i_block region starts at INODE_OFF_BLOCKS.
-    # Layout of extent header (12 bytes):
-    #   0x00  uint16_le  eh_magic    (0xF30A)
-    #   0x02  uint16_le  eh_entries
-    #   0x04  uint16_le  eh_max
-    #   0x06  uint16_le  eh_depth    (0 = leaf)
-    #   0x08  uint32_le  eh_generation
-    iblock = inode_bytes[INODE_OFF_BLOCKS: INODE_OFF_BLOCKS + 60]
+    if depth_budget < 0:
+        raise JournalReadError("Extent tree deeper than supported limit.")
+    if len(node) < EXT4_EXT_HEADER_SIZE:
+        raise JournalReadError("Extent node truncated.")
 
-    eh_magic   = struct.unpack_from('<H', iblock, 0)[0]
-    eh_entries = struct.unpack_from('<H', iblock, 2)[0]
-    eh_depth   = struct.unpack_from('<H', iblock, 6)[0]
+    eh_magic, eh_entries, _eh_max, eh_depth = struct.unpack_from('<HHHH', node, 0)
 
-    if eh_magic != 0xF30A:
+    if eh_magic != EXT4_EXT_MAGIC:
         raise JournalReadError(
             f"Extent header magic mismatch: 0x{eh_magic:04X}"
         )
-    if eh_depth != 0:
-        raise JournalReadError(
-            "Journal inode has a non-leaf extent tree depth "
-            f"({eh_depth}). Deep trees are not yet supported by FC-Trace."
-        )
     if eh_entries == 0:
-        raise JournalReadError("Journal inode has zero extent entries.")
+        raise JournalReadError("Extent node has zero entries.")
 
-    # First leaf extent starts at byte 12 within i_block
-    # struct ext4_extent { ee_block(4), ee_len(2), ee_start_hi(2), ee_start_lo(4) }
-    ee_block, ee_len, ee_start_hi, ee_start_lo = STRUCT_EXT4_EXTENT.unpack_from(
-        iblock, 12
-    )
-    physical_start = (ee_start_hi << 32) | ee_start_lo
-    return physical_start, ee_len
+    extents: List[Tuple[int, int, int]] = []
+
+    for i in range(eh_entries):
+        off = EXT4_EXT_HEADER_SIZE + i * EXT4_EXT_ENTRY_SIZE
+        if off + EXT4_EXT_ENTRY_SIZE > len(node):
+            logger.warning(
+                "Extent entry %d runs past node end — stopping walk", i
+            )
+            break
+
+        if eh_depth == 0:
+            ee_block, ee_len, ee_start_hi, ee_start_lo = (
+                STRUCT_EXT4_EXTENT.unpack_from(node, off)
+            )
+            # Uninitialised extents still occupy their blocks; the journal
+            # should not contain any, but normalise rather than mis-size.
+            if ee_len > EXT4_INIT_MAX_LEN:
+                ee_len -= EXT4_INIT_MAX_LEN
+            physical = (ee_start_hi << 32) | ee_start_lo
+            extents.append((ee_block, physical, ee_len))
+        else:
+            ei_block, ei_leaf_lo, ei_leaf_hi, _unused = struct.unpack_from(
+                '<IIHH', node, off
+            )
+            child_block = (ei_leaf_hi << 32) | ei_leaf_lo
+            try:
+                child = img.read_block(child_block)
+            except ImageReadError as exc:
+                logger.warning(
+                    "Cannot read extent index block %d: %s — skipping subtree",
+                    child_block, exc,
+                )
+                continue
+            extents.extend(
+                _parse_extent_tree(img, child, depth_budget - 1)
+            )
+
+    extents.sort(key=lambda e: e[0])
+    return extents
 
 
 class JournalReader:
@@ -163,6 +214,11 @@ class JournalReader:
         self.jbd2_sb: JBD2SuperBlock | None = None
         self.jnl_start_block: int = 0
         self.fc_blocks: List[int] = []
+        # Leaf extents of the journal inode as (logical, physical, length).
+        self.extents: List[Tuple[int, int, int]] = []
+        # True when the FC area had to be guessed because s_num_fc_blks was 0.
+        # Callers should degrade the confidence of anything decoded from it.
+        self.fc_range_is_heuristic: bool = False
 
     def open(self) -> None:
         """Locate the journal and parse its superblock."""
@@ -188,20 +244,27 @@ class JournalReader:
                 "Legacy block-map journals are not supported."
             )
 
-        try:
-            phys_start, _blk_count = _first_extent_block(inode_bytes)
-        except JournalReadError:
-            raise
+        iblock = inode_bytes[INODE_OFF_BLOCKS: INODE_OFF_BLOCKS + 60]
+        self.extents = _parse_extent_tree(self._img, iblock)
+        if not self.extents:
+            raise JournalReadError("Journal inode has no extents.")
 
-        self.jnl_start_block = phys_start
-        logger.info("Journal physical start block: %d", phys_start)
+        self.jnl_start_block = self._logical_to_physical(0)
+        if len(self.extents) > 1:
+            logger.info(
+                "Journal is fragmented across %d extents; "
+                "mapping fast-commit blocks individually.",
+                len(self.extents),
+            )
+        logger.info("Journal physical start block: %d", self.jnl_start_block)
 
         # Read JBD2 superblock (first block of journal)
         try:
-            jnl_sb_bytes = self._img.read_block(phys_start)
+            jnl_sb_bytes = self._img.read_block(self.jnl_start_block)
         except ImageReadError as exc:
             raise JournalReadError(
-                f"Cannot read JBD2 superblock block {phys_start}: {exc}"
+                f"Cannot read JBD2 superblock block "
+                f"{self.jnl_start_block}: {exc}"
             ) from exc
 
         self.jbd2_sb = JBD2SuperBlock(jnl_sb_bytes)
@@ -224,6 +287,20 @@ class JournalReader:
 
         self._compute_fc_blocks()
 
+    def _logical_to_physical(self, lblk: int) -> int:
+        """
+        Map a journal-relative logical block to its physical block.
+
+        Raises JournalReadError if the block falls in a hole, which for a
+        journal inode means the extent tree is not what we expect.
+        """
+        for ext_lblk, ext_pblk, ext_len in self.extents:
+            if ext_lblk <= lblk < ext_lblk + ext_len:
+                return ext_pblk + (lblk - ext_lblk)
+        raise JournalReadError(
+            f"Journal logical block {lblk} is not mapped by any extent."
+        )
+
     def _compute_fc_blocks(self) -> None:
         """
         Compute the list of physical blocks belonging to the FC area.
@@ -234,8 +311,9 @@ class JournalReader:
         Journal layout (logical):
           [block 0: JBD2 sb] [block 1..max_len-1-fc: normal JBD2] [fc blocks]
 
-        In terms of physical blocks:
-          fc_start_physical = jnl_start_block + max_len - num_fc_blks
+        Logical block numbers are resolved through the journal inode's extent
+        map rather than by adding an offset to the start block, so a
+        fragmented journal still yields correct physical addresses.
         """
         jb = self.jbd2_sb
         if jb is None:
@@ -245,18 +323,28 @@ class JournalReader:
         if num_fc == 0:
             # Heuristic: scan last 256 blocks for TLV magic
             num_fc = min(256, jb.max_len // 8)
+            self.fc_range_is_heuristic = True
             logger.warning(
-                "Using heuristic FC area size: %d blocks", num_fc
+                "Using heuristic FC area size: %d blocks. Events decoded from "
+                "this range are reported at LOW confidence because the byte "
+                "range itself is inferred, not read from s_num_fc_blks.",
+                num_fc,
             )
 
         fc_logical_start = jb.max_len - num_fc
-        self.fc_blocks = [
-            self.jnl_start_block + fc_logical_start + i
-            for i in range(num_fc)
-        ]
+        self.fc_blocks = []
+        for i in range(num_fc):
+            try:
+                self.fc_blocks.append(
+                    self._logical_to_physical(fc_logical_start + i)
+                )
+            except JournalReadError as exc:
+                logger.warning("FC block %d unmapped: %s", fc_logical_start + i, exc)
+
         logger.info(
-            "Fast-commit area: %d blocks starting at physical block %d",
-            num_fc, self.fc_blocks[0] if self.fc_blocks else -1,
+            "Fast-commit area: %d of %d blocks mapped, starting at physical block %d",
+            len(self.fc_blocks), num_fc,
+            self.fc_blocks[0] if self.fc_blocks else -1,
         )
 
     def read_fc_area(self) -> bytes:

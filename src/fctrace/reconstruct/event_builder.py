@@ -12,21 +12,30 @@ Key responsibilities
 3. Emit one ForensicEvent per significant operation.
 4. Assign a confidence score to each event.
 5. Flag incomplete transactions (HEAD without matching TAIL) with
-   CONFIDENCE_PARTIAL.
+   CONFIDENCE_MEDIUM.
+6. Verify each commit's CRC-32C and demote tampered commits to
+   CONFIDENCE_LOW.
 
 Confidence model
 ----------------
-HIGH   (0.9) — complete transaction (HEAD + TAIL + CRC present);
-               dentry name is non-empty; ino > 10.
+HIGH   (0.9) — complete transaction (HEAD + TAIL present, and the TAIL's
+               CRC-32C verified whenever it could be checked); dentry name
+               is non-empty; ino > 10.
 MEDIUM (0.6) — transaction lacks TAIL (crash-interrupted) but records
                are internally consistent.
-LOW    (0.3) — TLV value decode error, or heuristic FC scan fallback.
+LOW    (0.3) — any of: TLV value decode error; fast-commit CRC mismatch
+               (truncated, overwritten, or tampered commit); empty dentry
+               name on a CREATE/UNLINK/RENAME; reserved inode (ino < 11);
+               or the FC area was located by heuristic fallback rather than
+               from s_num_fc_blks.
+
+Every branch above is implemented in :py:meth:`EventBuilder._compute_confidence`;
+keep this docstring and that method in step.
 """
 
 import logging
 from dataclasses import dataclass, field
-from itertools import groupby
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from fctrace.parser.tlv_decoder import (
     FCRecord,
@@ -91,6 +100,7 @@ class ForensicEvent:
     extent_len:      int   = 0
     confidence:      float = CONFIDENCE_MEDIUM
     commit_complete: bool  = False
+    crc_status:      str   = 'unchecked'
     fc_offsets:      List[int] = field(default_factory=list)
     decode_errors:   List[str] = field(default_factory=list)
 
@@ -109,6 +119,7 @@ class ForensicEvent:
             'extent_len':      self.extent_len,
             'confidence':      round(self.confidence, 3),
             'commit_complete': self.commit_complete,
+            'crc_status':      self.crc_status,
             'fc_offsets':      self.fc_offsets,
             'decode_errors':   self.decode_errors,
         }
@@ -124,13 +135,26 @@ class Transaction:
     head:    Optional[FCCommitHead] = None
     tail:    Optional[FCCommitTail] = None
     records: List[FCRecord] = field(default_factory=list)
+    # True/False once the TAIL's CRC-32C has been checked, None if the
+    # decoder could not check it (no journal block size supplied).
+    crc_verified: Optional[bool] = None
 
     @property
     def is_complete(self) -> bool:
         return self.head is not None and self.tail is not None
 
     @property
+    def crc_status(self) -> str:
+        if self.crc_verified is None:
+            return 'unchecked'
+        return 'verified' if self.crc_verified else 'failed'
+
+    @property
     def base_confidence(self) -> float:
+        # A commit whose CRC does not match is not intact evidence, whatever
+        # else is present.
+        if self.crc_verified is False:
+            return CONFIDENCE_LOW
         if self.is_complete:
             return CONFIDENCE_HIGH
         if self.head is not None:
@@ -148,8 +172,24 @@ class EventBuilder:
     objects, grouped and ordered by transaction.
     """
 
-    def __init__(self, records: List[FCRecord]) -> None:
+    def __init__(
+        self,
+        records: List[FCRecord],
+        fc_area_heuristic: bool = False,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        records
+            Decoded FC records.
+        fc_area_heuristic
+            True when the fast-commit area was located by JournalReader's
+            fallback scan rather than from ``s_num_fc_blks``. Everything
+            decoded under that condition is capped at LOW confidence, since
+            the byte range itself is a guess.
+        """
         self._records = records
+        self._fc_area_heuristic = fc_area_heuristic
         self._transactions: Dict[int, Transaction] = {}
 
     def build(self) -> List[ForensicEvent]:
@@ -169,6 +209,7 @@ class EventBuilder:
             for ev in tx_events:
                 ev.seq = seq
                 ev.commit_complete = tx.is_complete
+                ev.crc_status = tx.crc_status
                 ev.confidence = self._compute_confidence(ev, tx)
                 seq += 1
             events.extend(tx_events)
@@ -196,6 +237,7 @@ class EventBuilder:
                 tx.head = rec.payload
             elif rec.tag == FCTag.TAIL and isinstance(rec.payload, FCCommitTail):
                 tx.tail = rec.payload
+                tx.crc_verified = rec.crc_verified
             else:
                 tx.records.append(rec)
 
@@ -292,6 +334,12 @@ class EventBuilder:
                 )
                 events.append(ev)
 
+        # Inferred RENAMEs are paired in a first pass above, so they would
+        # otherwise be emitted ahead of every CREATE/UNLINK/LINK in the same
+        # transaction regardless of where their records actually sit on disk.
+        # Order by the first contributing FC record so the emitted timeline
+        # follows on-disk record order.
+        events.sort(key=lambda ev: min(ev.fc_offsets) if ev.fc_offsets else 0)
         return events
 
     # ------------------------------------------------------------------
@@ -362,14 +410,21 @@ class EventBuilder:
             fc_offsets=[rec.offset],
         )
 
-    @staticmethod
-    def _compute_confidence(ev: ForensicEvent, tx: Transaction) -> float:
-        """Adjust confidence based on event-level and transaction-level signals."""
-        base = tx.base_confidence
+    def _compute_confidence(self, ev: ForensicEvent, tx: Transaction) -> float:
+        """
+        Adjust confidence based on event-level and transaction-level signals.
+
+        Mirrors the confidence model documented at module level; the branches
+        here and that docstring must stay in step.
+        """
         if ev.decode_errors:
+            return CONFIDENCE_LOW
+        if tx.crc_verified is False:          # commit not intact
+            return CONFIDENCE_LOW
+        if self._fc_area_heuristic:           # FC byte range was guessed
             return CONFIDENCE_LOW
         if ev.event_type in ('CREATE', 'UNLINK', 'RENAME') and not ev.name:
             return CONFIDENCE_LOW
         if ev.ino < 11:    # ino < 11 are reserved ext4 inodes
             return CONFIDENCE_LOW
-        return base
+        return tx.base_confidence

@@ -8,8 +8,9 @@ Forensic assumption: the image is opened read-only to preserve evidence
 integrity.  Callers must never open the live filesystem for writing.
 """
 
+from __future__ import annotations
+
 import logging
-import os
 import struct
 from pathlib import Path
 from typing import Optional
@@ -17,7 +18,9 @@ from typing import Optional
 from fctrace.parser.fc_tags import (
     EXT4_SUPER_MAGIC,
     EXT4_FEATURE_COMPAT_FAST_COMMIT,
+    EXT4_FEATURE_INCOMPAT_64BIT,
     EXT4_EXTENTS_FL,
+    SB_OFF_DESC_SIZE,
     SB_OFF_MAGIC,
     SB_OFF_LOG_BLOCK_SIZE,
     SB_OFF_INODES_PER_GROUP,
@@ -68,6 +71,9 @@ class Ext4Image:
         self.inode_size: int = 128
         self.first_data_block: int = 0
         self.feature_incompat: int = 0
+        self.feature_compat: int = 0
+        self.desc_size: int = EXT4_GROUP_DESC_SIZE_32
+        self.has_64bit: bool = False
         self.has_fast_commit: bool = False
         self.has_extents: bool = False
 
@@ -188,15 +194,30 @@ class Ext4Image:
         self.first_data_block = struct.unpack_from(
             '<I', self._sb_bytes, SB_OFF_FIRST_DATA_BLOCK)[0]
 
+        # Group descriptors are 32 bytes unless the 64BIT feature is set, in
+        # which case s_desc_size gives their size. Hardcoding 64 mis-locates
+        # every inode -- including the journal inode -- on a volume built
+        # without -O 64bit.
+        self.has_64bit = bool(
+            self.feature_incompat & EXT4_FEATURE_INCOMPAT_64BIT
+        )
+        if self.has_64bit:
+            desc_size = struct.unpack_from(
+                '<H', self._sb_bytes, SB_OFF_DESC_SIZE)[0]
+            self.desc_size = desc_size or EXT4_GROUP_DESC_SIZE_64
+        else:
+            self.desc_size = EXT4_GROUP_DESC_SIZE_32
+
         self.has_fast_commit = bool(
             self.feature_compat & EXT4_FEATURE_COMPAT_FAST_COMMIT
         )
 
         logger.info(
             "Superblock OK | block_size=%d | journal_inum=%d | "
-            "fast_commit=%s | inode_size=%d",
+            "fast_commit=%s | inode_size=%d | desc_size=%d (64bit=%s)",
             self.block_size, self.journal_inum,
             self.has_fast_commit, self.inode_size,
+            self.desc_size, self.has_64bit,
         )
 
         if not self.has_fast_commit:
@@ -232,15 +253,9 @@ class Ext4Image:
 
         # Group descriptor table starts right after the superblock block.
         gdt_block = self.first_data_block + 1
-        # Each 64-bit group descriptor is 64 bytes
-        gd_off = gdt_block * self.block_size + group * EXT4_GROUP_DESC_SIZE_64
+        gd_off = gdt_block * self.block_size + group * self.desc_size
 
-        # Group descriptor (64-bit ext4):
-        #   0x00  uint32  bg_inode_table_lo
-        #   0x04  uint32  bg_block_bitmap_lo
-        #   0x08  uint32  bg_inode_bitmap_lo
-        #   0x0C  uint32  bg_inode_table_lo  <-- actually this is the table
-        # Wait — correct layout (ext4 64-bit group descriptor):
+        # ext4 group descriptor:
         #   0x00  uint32  bg_block_bitmap_lo
         #   0x04  uint32  bg_inode_bitmap_lo
         #   0x08  uint32  bg_inode_table_lo
@@ -253,13 +268,17 @@ class Ext4Image:
         #   0x1A  uint16  bg_inode_bitmap_csum_lo
         #   0x1C  uint16  bg_itable_unused_lo
         #   0x1E  uint16  bg_checksum
+        # The _hi halves below exist only in 64-byte (64bit) descriptors:
         #   0x20  uint32  bg_block_bitmap_hi
         #   0x24  uint32  bg_inode_bitmap_hi
         #   0x28  uint32  bg_inode_table_hi
 
-        gd_data = self.read_bytes(gd_off, EXT4_GROUP_DESC_SIZE_64)
+        gd_data = self.read_bytes(gd_off, self.desc_size)
         inode_table_lo = struct.unpack_from('<I', gd_data, 0x08)[0]
-        inode_table_hi = struct.unpack_from('<I', gd_data, 0x28)[0]
+        if self.desc_size >= 0x2C:
+            inode_table_hi = struct.unpack_from('<I', gd_data, 0x28)[0]
+        else:
+            inode_table_hi = 0
         inode_table_block = (inode_table_hi << 32) | inode_table_lo
 
         byte_offset = (inode_table_block * self.block_size

@@ -4,12 +4,17 @@ run_real_image_tests.py — Real ext4 disk image test harness for FC-Trace
 ==========================================================================
 Creates genuine 512 MiB ext4 images with fast_commit enabled, replays
 scripted workloads, then captures the raw disk state via dd BEFORE any
-clean unmount (which would flush the FC area with a full JBD2 commit).
+unmount, capturing the volume in the state a live acquisition would find.
 
 Why snapshot before unmount?
-  A clean 'umount' calls sync, triggers a full JBD2 commit, and overwrites
-  the fast-commit tail area.  To capture FC records we must snapshot the
-  loop device WHILE the filesystem is still mounted and dirty.
+  This models live acquisition: the examiner images a running system rather
+  than one that has been cleanly shut down.  We originally believed a clean
+  unmount would flush the fast-commit area via a full JBD2 commit, but
+  measurement across kernels 5.10-6.18 showed records survive sync, remount
+  and clean unmount alike; only later fast commits overwrite them (see
+  scripts/exp_invalidation.py).  The ordering is therefore conservative
+  rather than strictly necessary, and is retained for fidelity to the
+  investigative scenario.
 
 Approach:
   1. Create image (512 MiB, -b 4096, -O fast_commit).
@@ -30,19 +35,18 @@ import argparse
 import json
 import logging
 import os
-import struct
 import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from fctrace.io.image_reader import Ext4Image, ImageReadError
-from fctrace.io.journal_reader import JournalReader, JournalReadError
+from fctrace.io.image_reader import Ext4Image
+from fctrace.io.journal_reader import JournalReader
 from fctrace.parser.tlv_decoder import decode_fc_buffer
 from fctrace.reconstruct.event_builder import EventBuilder
 from fctrace.compare.diff_engine import DiffEngine, EvaluationResult
@@ -137,6 +141,21 @@ def sh(cmd: str, check: bool = True) -> subprocess.CompletedProcess:
     return r
 
 
+def fsync_path(path: str, directory: bool = False) -> None:
+    """
+    Open, fsync, and close *path* to force the kernel to emit a fast commit.
+
+    Syncing the parent directory (directory=True) is what commits a dentry
+    change such as a create or unlink.
+    """
+    flags = os.O_RDONLY | (os.O_DIRECTORY if directory else 0)
+    fd = os.open(path, flags)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def warmup_write(mnt: str) -> None:
     """
     Write one file, force a full fsync, and sleep past the JBD2 commit
@@ -179,7 +198,7 @@ def scenario_S1(mnt: str) -> List[dict]:
     # RENAME a.txt → b.txt (fast commits LINK+UNLINK in one tx)
     path_b = f"{subdir}/b.txt"
     os.rename(path_a, path_b)
-    fd = os.open(path_b, os.O_RDONLY); os.fsync(fd); os.close(fd)
+    fsync_path(path_b)
     gt.append(_gt(seq, 'RENAME', ino=ino_a, parent=dir_ino,
                   name='a.txt', new_name='b.txt', new_parent=dir_ino))
     seq += 1
@@ -187,13 +206,13 @@ def scenario_S1(mnt: str) -> List[dict]:
     # LINK b.txt → hardlink.txt
     path_hl = f"{subdir}/hardlink.txt"
     os.link(path_b, path_hl)
-    fd = os.open(path_hl, os.O_RDONLY); os.fsync(fd); os.close(fd)
+    fsync_path(path_hl)
     gt.append(_gt(seq, 'LINK', ino=ino_a, parent=dir_ino, name='hardlink.txt'))
     seq += 1
 
     # UNLINK hardlink.txt
     os.unlink(path_hl)
-    fd = os.open(path_b, os.O_RDONLY); os.fsync(fd); os.close(fd)
+    fsync_path(path_b)
     gt.append(_gt(seq, 'UNLINK', ino=ino_a, parent=dir_ino, name='hardlink.txt'))
     seq += 1
 
@@ -208,7 +227,7 @@ def scenario_S1(mnt: str) -> List[dict]:
 
     # UNLINK c.txt
     os.unlink(path_c)
-    fd = os.open(subdir, os.O_RDONLY | os.O_DIRECTORY); os.fsync(fd); os.close(fd)
+    fsync_path(subdir, directory=True)
     gt.append(_gt(seq, 'UNLINK', ino=ino_c, parent=dir_ino, name='c.txt'))
     seq += 1
 
@@ -264,7 +283,7 @@ def scenario_S3(mnt: str) -> List[dict]:
         seq += 1
 
         os.unlink(path)
-        fd = os.open(mnt, os.O_RDONLY | os.O_DIRECTORY); os.fsync(fd); os.close(fd)
+        fsync_path(mnt, directory=True)
         gt.append(_gt(seq, 'UNLINK', ino=ino, parent=mnt_ino, name=name))
         seq += 1
 
@@ -303,13 +322,13 @@ def scenario_S4(mnt: str) -> List[dict]:
     # Phase 2: rename then unlink each file
     for src, dst, src_name, dst_name, ino in entries:
         os.rename(src, dst)
-        fd = os.open(dst, os.O_RDONLY); os.fsync(fd); os.close(fd)
+        fsync_path(dst)
         gt.append(_gt(seq, 'RENAME', ino=ino, parent=mnt_ino,
                       name=src_name, new_name=dst_name, new_parent=mnt_ino))
         seq += 1
 
         os.unlink(dst)
-        fd = os.open(mnt, os.O_RDONLY | os.O_DIRECTORY); os.fsync(fd); os.close(fd)
+        fsync_path(mnt, directory=True)
         gt.append(_gt(seq, 'UNLINK', ino=ino, parent=mnt_ino, name=dst_name))
         seq += 1
 
@@ -329,7 +348,7 @@ def scenario_S5(mnt: str) -> List[dict]:
     # Level-1 dir: fsync the PARENT (mnt) to commit the 'level1' dentry record
     l1 = f"{mnt}/level1"
     os.mkdir(l1)
-    fd = os.open(mnt, os.O_RDONLY | os.O_DIRECTORY); os.fsync(fd); os.close(fd)
+    fsync_path(mnt, directory=True)
     l1_ino = get_ino(l1)
     gt.append(_gt(seq, 'CREATE', ino=l1_ino, parent=mnt_ino, name='level1'))
     seq += 1
@@ -337,7 +356,7 @@ def scenario_S5(mnt: str) -> List[dict]:
     # Level-2 dir: fsync l1 (the parent of level2)
     l2 = f"{l1}/level2"
     os.mkdir(l2)
-    fd = os.open(l1, os.O_RDONLY | os.O_DIRECTORY); os.fsync(fd); os.close(fd)
+    fsync_path(l1, directory=True)
     l2_ino = get_ino(l2)
     gt.append(_gt(seq, 'CREATE', ino=l2_ino, parent=l1_ino, name='level2'))
     seq += 1
@@ -345,7 +364,7 @@ def scenario_S5(mnt: str) -> List[dict]:
     # Level-3 dir: fsync l2 (the parent of level3)
     l3 = f"{l2}/level3"
     os.mkdir(l3)
-    fd = os.open(l2, os.O_RDONLY | os.O_DIRECTORY); os.fsync(fd); os.close(fd)
+    fsync_path(l2, directory=True)
     l3_ino = get_ino(l3)
     gt.append(_gt(seq, 'CREATE', ino=l3_ino, parent=l2_ino, name='level3'))
     seq += 1
@@ -363,7 +382,7 @@ def scenario_S5(mnt: str) -> List[dict]:
     # Rename target.txt up to level1
     path_mid = f"{l1}/moved.txt"
     os.rename(path_orig, path_mid)
-    fd = os.open(path_mid, os.O_RDONLY); os.fsync(fd); os.close(fd)
+    fsync_path(path_mid)
     gt.append(_gt(seq, 'RENAME', ino=ino, parent=l3_ino,
                   name=fname, new_name='moved.txt', new_parent=l1_ino))
     seq += 1
@@ -371,7 +390,7 @@ def scenario_S5(mnt: str) -> List[dict]:
     # Rename moved.txt up to mount root
     path_root = f"{mnt}/moved.txt"
     os.rename(path_mid, path_root)
-    fd = os.open(path_root, os.O_RDONLY); os.fsync(fd); os.close(fd)
+    fsync_path(path_root)
     gt.append(_gt(seq, 'RENAME', ino=ino, parent=l1_ino,
                   name='moved.txt', new_name='moved.txt', new_parent=mnt_ino))
     seq += 1
@@ -409,7 +428,7 @@ def run_scenario(
     with tempfile.TemporaryDirectory(prefix='fctrace_mnt_') as mnt:
         loop_img = LoopImage(str(loop_path), mnt)
         loop_img.create()
-        loop_dev = loop_img.mount()
+        loop_img.mount()
 
         try:
             # Warm up: trigger the first-mount full JBD2 commit and wait for it
@@ -418,9 +437,7 @@ def run_scenario(
 
             # Run actual workload
             logger.info("[%s] Running workload …", sc_id)
-            t0 = time.perf_counter()
             gt_events = workload_fn(mnt)
-            rt = time.perf_counter() - t0
 
             # Take dd snapshot to a DIFFERENT file before any umount
             loop_img.snapshot(str(snap_path))
@@ -441,7 +458,8 @@ def run_scenario(
             jr = JournalReader(img)
             jr.open()
             raw = jr.read_fc_area()
-        recs  = decode_fc_buffer(raw)
+            bs = (jr.jbd2_sb.block_size if jr.jbd2_sb else 0) or img.block_size
+        recs  = decode_fc_buffer(raw, block_size=bs)
         evs   = [e.to_dict() for e in EventBuilder(recs).build()]
     except Exception as exc:
         logger.error("[%s] FC-Trace failed: %s", sc_id, exc)
@@ -474,7 +492,7 @@ def run_scenario(
 def print_table(results: List[EvaluationResult]) -> None:
     hdr = f"  {'Scenario':<32} {'GT':>4} {'TP':>4} {'FP':>4} {'FN':>4}  {'R':>6}{'P':>6}{'F1':>6}{'Ord':>6}{'Path':>6}  "
     W = len(hdr)
-    title = "  FC-TRACE REAL-IMAGE EVALUATION (honest, not simulation)"
+    title = "  FC-Trace Real-Image Evaluation"
     print()
     print("╔" + "═"*W + "╗")
     print(f"║{title:<{W}}║")

@@ -23,12 +23,11 @@ Exit codes:
 """
 
 import argparse
-import json
 import logging
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 logger = logging.getLogger('fctrace')
 
@@ -43,17 +42,31 @@ def _configure_logging(verbose: bool, quiet: bool) -> None:
     )
 
 
-def run_fctrace(image_path: str) -> List[dict]:
+def run_fctrace(image_path: str) -> Tuple[List[dict], dict]:
     """
     Full FC-Trace pipeline: image → journal → FC area → TLV decode → events.
-    Returns a list of event dicts.
+
+    Returns ``(events, meta)`` where *events* is a list of event dicts and
+    *meta* carries provenance the caller needs for exit status and reporting:
+    ``has_fast_commit``, ``fc_area_heuristic``, ``crc_checked``,
+    ``crc_failures``, ``resyncs``.
     """
-    from fctrace.io.image_reader import Ext4Image, ImageReadError
-    from fctrace.io.journal_reader import JournalReader, JournalReadError
-    from fctrace.parser.tlv_decoder import decode_fc_buffer
+    from fctrace.io.image_reader import Ext4Image
+    from fctrace.io.journal_reader import JournalReader
+    from fctrace.parser.tlv_decoder import TLVDecoder
+    from fctrace.parser.fc_tags import FCTag
     from fctrace.reconstruct.event_builder import EventBuilder
 
+    meta = {
+        'has_fast_commit':   False,
+        'fc_area_heuristic': False,
+        'crc_checked':       0,
+        'crc_failures':      0,
+        'resyncs':           0,
+    }
+
     with Ext4Image(image_path) as img:
+        meta['has_fast_commit'] = img.has_fast_commit
         if not img.has_fast_commit:
             logger.warning(
                 "fast_commit feature not set on this image. "
@@ -62,21 +75,42 @@ def run_fctrace(image_path: str) -> List[dict]:
 
         jr = JournalReader(img)
         jr.open()
+        meta['fc_area_heuristic'] = jr.fc_range_is_heuristic
 
         fc_bytes = jr.read_fc_area()
         logger.info("Read %d bytes from fast-commit area.", len(fc_bytes))
 
         if not fc_bytes:
             logger.warning("Fast-commit area is empty.")
-            return []
+            return [], meta
 
-        records = decode_fc_buffer(fc_bytes)
+        # The FC area is block-structured; the decoder needs the journal block
+        # size to skip TAIL padding and resynchronise. See TLVDecoder.
+        fc_block_size = (
+            jr.jbd2_sb.block_size if jr.jbd2_sb else img.block_size
+        ) or img.block_size
+
+        decoder = TLVDecoder(fc_bytes, block_size=fc_block_size)
+        records = [r for r in decoder.decode() if r.tag != FCTag.PAD]
+        meta['crc_checked']  = decoder.crc_checked
+        meta['crc_failures'] = decoder.crc_failures
+        meta['resyncs']      = decoder.resync_count
         logger.info("Decoded %d FC records.", len(records))
 
-        builder = EventBuilder(records)
+        if decoder.crc_failures:
+            logger.warning(
+                "%d of %d fast commits failed CRC verification. Those commits "
+                "are not intact and their events are reported at LOW "
+                "confidence.",
+                decoder.crc_failures, decoder.crc_checked,
+            )
+
+        builder = EventBuilder(
+            records, fc_area_heuristic=jr.fc_range_is_heuristic
+        )
         events = builder.build()
 
-    return [ev.to_dict() for ev in events]
+    return [ev.to_dict() for ev in events], meta
 
 
 def _print_metrics(result) -> None:
@@ -123,15 +157,38 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1
 
     # ── Run FC-Trace ──────────────────────────────────────────────
+    from fctrace.io.image_reader import ImageReadError
+    from fctrace.io.journal_reader import JournalReadError
+
     t0 = time.perf_counter()
     try:
-        events = run_fctrace(image_path)
+        events, meta = run_fctrace(image_path)
+    except ImageReadError as exc:
+        logger.error("Cannot read image as ext4: %s", exc, exc_info=args.verbose)
+        return 1
+    except JournalReadError as exc:
+        logger.error("Cannot locate journal: %s", exc, exc_info=args.verbose)
+        return 3
     except Exception as exc:
         logger.error("FC-Trace pipeline failed: %s", exc, exc_info=args.verbose)
         return 3
     fc_runtime = time.perf_counter() - t0
 
     logger.info("FC-Trace produced %d events in %.3f s", len(events), fc_runtime)
+
+    if meta['crc_checked']:
+        logger.info(
+            "Integrity: %d/%d fast commits passed CRC verification.",
+            meta['crc_checked'] - meta['crc_failures'], meta['crc_checked'],
+        )
+
+    # Documented exit code 2: the image has no fast-commit feature, so there
+    # was no evidence source to read.
+    if not meta['has_fast_commit'] and not events:
+        logger.error(
+            "Image has no fast_commit feature and produced no events."
+        )
+        return 2
 
     # ── Write outputs ─────────────────────────────────────────────
     from fctrace.output.reporters import JSONReporter, CSVReporter, TextReporter

@@ -1,6 +1,6 @@
 # ────────────────────────────────────────────────────────────
 # FC-Trace Reproducibility Container
-# Provides: Python 3.12, e2fsprogs >= 1.46.3, sleuthkit, pytest
+# Provides: Python 3.10+, e2fsprogs with fast-commit support, sleuthkit, pytest
 #
 # Build:   docker build -t fc-trace:latest .
 # Run:     docker run --rm -it --privileged fc-trace:latest bash
@@ -14,7 +14,7 @@ FROM ubuntu:22.04
 
 LABEL maintainer="Vinod Gendre <vgendre.phd2024.cse@nitrr.ac.in>"
 LABEL description="FC-Trace: ext4 fast-commit forensic analysis"
-LABEL version="0.1.0"
+LABEL version="1.0.0"
 
 # Use noninteractive apt frontend
 ENV DEBIAN_FRONTEND=noninteractive
@@ -42,8 +42,6 @@ WORKDIR /opt/fc-trace
 COPY src/           ./src/
 COPY tests/         ./tests/
 COPY scripts/       ./scripts/
-COPY data/          ./data/
-COPY results/       ./results/
 COPY pyproject.toml README.md AUTHORS.md CITATION.cff LICENSE ./
 
 # ── Install package (editable, no deps) ─────────────────────

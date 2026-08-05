@@ -13,9 +13,7 @@ logical commit is delimited by EXT4_FC_TAG_HEAD / EXT4_FC_TAG_TAIL.
 """
 
 import struct
-from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Optional
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +135,14 @@ SB_OFF_FEATURE_INCOMPAT = 0x60   # uint32 — NOT where fast_commit lives (0x400
 SB_OFF_JOURNAL_INUM     = 0xE0   # uint32
 SB_OFF_INODE_SIZE       = 0x58   # uint16
 SB_OFF_FIRST_DATA_BLOCK = 0x14   # uint32
+SB_OFF_DESC_SIZE        = 0xFE   # uint16 — group descriptor size, valid only
+                                 # when EXT4_FEATURE_INCOMPAT_64BIT is set
+
+# Group descriptors are 32 bytes unless the 64BIT incompat feature is set, in
+# which case their size is given by s_desc_size (normally 64). Assuming 64
+# unconditionally mis-locates every inode on a volume built without -O 64bit.
+# Source: Documentation/filesystems/ext4/super.rst
+EXT4_FEATURE_INCOMPAT_64BIT = 0x0080
 
 # JBD2 journal superblock offsets (big-endian)
 JBD2_SB_OFF_MAGIC       = 0x00   # uint32 BE

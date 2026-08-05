@@ -22,7 +22,7 @@ Scenarios
 Requirements
 ------------
   sudo / root  (for losetup, mount, umount, blockdev)
-  mkfs.ext4 with fast_commit support  (e2fsprogs >= 1.46.3)
+  mkfs.ext4 with fast_commit support (e2fsprogs with -O fast_commit)
   Linux kernel >= 5.10
 
 Usage::

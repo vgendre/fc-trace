@@ -1,17 +1,24 @@
 cff-version: 1.2.0
-message: "If you use FC-Trace in academic work, please cite the software artifact."
-title: "FC-Trace: Rapid Timeline Reconstruction from ext4 Journal Commit Evidence"
-version: "0.1.0"
+message: "If you use FC-Trace, cite the code release and the versioned dataset record."
+title: "FC-Trace: Rapid Timeline Reconstruction from ext4 Fast-Commit Metadata"
+version: "1.0.0"
+date-released: 2026-08-05
 authors:
   - family-names: "Gendre"
     given-names: "Vinod"
     email: "vgendre.phd2024.cse@nitrr.ac.in"
-    affiliation: "Department of Computer Science and Engineering, National Institute of Technology Raipur, India"
+    affiliation: "National Institute of Technology Raipur, India"
   - family-names: "Bharadwaj"
     given-names: "Nitesh K"
     email: "nkbharadwaj.cse@nitrr.ac.in"
-    affiliation: "Department of Computer Science and Engineering, National Institute of Technology Raipur, India"
-license: "Research verification only; see LICENSE"
+    affiliation: "National Institute of Technology Raipur, India"
+license: MIT
 repository-code: "https://github.com/vgendre/fc-trace"
-
-abstract: "The FC-Trace source code, evaluation scripts, synthetic datasets, and Dockerfile are available from the authors upon reasonable academic request at https://github.com/vgendre/fc-trace for research verification."
+doi: "10.5281/zenodo.21807669"
+abstract: "FC-Trace parses ext4 fast-commit records from raw disk images and reconstructs ordered, integrity-checked file-system events."
+keywords:
+  - digital forensics
+  - ext4
+  - fast commit
+  - JBD2
+  - timeline reconstruction
