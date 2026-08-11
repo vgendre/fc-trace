@@ -14,7 +14,7 @@ Tools
   TSK `jls`             JBD2 journal block listing
   `debugfs logdump`     journal dump, including its Fast Commit Area section
   plaso / log2timeline  timestamp-based super-timeline      (if installed)
-  Autopsy               via an exported CSV                 (--autopsy-csv)
+  Autopsy               via one exported CSV per scenario  (--autopsy-csv-dir)
 
 Common event model
 ------------------
@@ -42,7 +42,8 @@ anywhere in the file system; it survives only in the fast-commit area.
 Example::
 
     python3 scripts/exp_tool_comparison.py --snap-dir data/raw_images \\
-        --gt-dir data/ground_truth --autopsy-csv autopsy_S1.csv
+        --gt-dir data/ground_truth --autopsy-csv-dir autopsy_exports \\
+        --autopsy-runtime-json autopsy_runtime.json
 """
 
 import argparse
@@ -201,7 +202,8 @@ def load_autopsy_csv(path):
     Score an Autopsy report exported as CSV.
 
     Autopsy is a Java GUI over the TSK engine and cannot be driven headlessly
-    here; export a Results-CSV report and pass it with --autopsy-csv.
+    here; export one Results-CSV report per scenario and pass the directory
+    with --autopsy-csv-dir.
     """
     text = Path(path).read_text(errors='replace')
     evs = []
@@ -214,6 +216,35 @@ def load_autopsy_csv(path):
     return evs, text
 
 
+
+def find_autopsy_csv(csv_dir, scenario):
+    """Find the scenario-specific Autopsy Results CSV."""
+    if not csv_dir:
+        return None
+    base = Path(csv_dir)
+    for name in (f'{scenario}_autopsy.csv', f'autopsy_{scenario}.csv',
+                 f'{scenario}.csv'):
+        candidate = base / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def load_autopsy_runtime(path):
+    """Load measured Autopsy ingest seconds keyed by scenario name."""
+    if not path:
+        return {}
+    data = json.loads(Path(path).read_text())
+    if isinstance(data, dict):
+        return {str(k): float(v) for k, v in data.items()}
+    if isinstance(data, list):
+        return {str(row['scenario']): float(row['runtime_s'])
+                for row in data
+                if isinstance(row, dict) and 'scenario' in row
+                and 'runtime_s' in row}
+    raise ValueError('Autopsy runtime JSON must be an object or list of records')
+
+
 # ---------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser(
@@ -223,7 +254,11 @@ def main():
     ap.add_argument('--gt-dir', default='data/ground_truth')
     ap.add_argument('--output', default='results/measured/tool_comparison.json')
     ap.add_argument('--autopsy-csv', default=None,
-                    help='CSV exported from Autopsy (see EXPERIMENTS.md 3B)')
+                    help='single-scenario compatibility CSV; scored only for S1')
+    ap.add_argument('--autopsy-csv-dir', default=None,
+                    help='directory containing one Autopsy Results CSV per scenario')
+    ap.add_argument('--autopsy-runtime-json', default=None,
+                    help='JSON mapping scenario names to measured Autopsy ingest seconds')
     ap.add_argument('--with-plaso', action='store_true',
                     help='also run log2timeline/psort (slow)')
     ap.add_argument('--workdir', default='/tmp/fctrace_cmp')
@@ -231,18 +266,23 @@ def main():
 
     snap_dir, gt_dir = Path(args.snap_dir), Path(args.gt_dir)
     Path(args.workdir).mkdir(parents=True, exist_ok=True)
+    autopsy_runtime = load_autopsy_runtime(args.autopsy_runtime_json)
 
-    scenarios = sorted(p.name.replace('_snap.img', '')
-                       for p in snap_dir.glob('*_snap.img'))
+    scenarios = sorted(p.stem for p in snap_dir.glob('*.img')
+                       if not p.name.endswith('_loop.img'))
     if not scenarios:
-        sys.exit(f'no *_snap.img in {snap_dir}. '
+        sys.exit(f'no scenario .img files in {snap_dir}. '
                  'Run scripts/run_real_image_tests.py first.')
 
     print(f'kernel: {os.uname().release}')
     fls_v = subprocess.run(['fls', '-V'], capture_output=True, text=True)
     print(f'sleuthkit: {fls_v.stdout.strip() or fls_v.stderr.strip()}')
     print(f'plaso: {"available" if shutil.which("log2timeline.py") else "not installed"}')
-    print(f'autopsy csv: {args.autopsy_csv or "not supplied"}\n')
+    print(f'autopsy csv dir: {args.autopsy_csv_dir or "not supplied"}')
+    print(f'autopsy runtime json: {args.autopsy_runtime_json or "not supplied"}')
+    if args.autopsy_csv and not args.autopsy_csv_dir:
+        print('legacy single Autopsy CSV mode: the CSV is scored only for S1_normal_workload')
+    print()
 
     hdr = (f'{"scenario":<24} {"tool":<12} {"TP":>3} {"FP":>4} {"FN":>4} '
            f'{"R":>6} {"P":>6} {"F1":>6} {"Ord":>7} {"ms":>9} {"pre-rename":>11}')
@@ -251,7 +291,7 @@ def main():
 
     results = []
     for sc in scenarios:
-        img = str(snap_dir / f'{sc}_snap.img')
+        img = str(snap_dir / f'{sc}.img')
         gt_file = gt_dir / f'{sc}_gt.json'
         if not gt_file.exists():
             continue
@@ -261,14 +301,20 @@ def main():
         runs = [('FC-Trace', *run_fctrace(img)),
                 ('TSK fls', *run_tsk_fls(img))]
 
+        autopsy_path = find_autopsy_csv(args.autopsy_csv_dir, sc)
+        if (autopsy_path is None and args.autopsy_csv
+                and sc == 'S1_normal_workload'
+                and Path(args.autopsy_csv).is_file()):
+            autopsy_path = Path(args.autopsy_csv)
+
         plaso_status = None
         if args.with_plaso:
             pe, prt, plaso_status = run_plaso(img, args.workdir)
             if pe is not None and plaso_status == 'ok':
                 runs.append(('plaso', pe, prt))
-        if args.autopsy_csv and Path(args.autopsy_csv).exists():
-            ae, atxt = load_autopsy_csv(args.autopsy_csv)
-            runs.append(('Autopsy', ae, 0.0))
+        if autopsy_path is not None:
+            ae, atxt = load_autopsy_csv(autopsy_path)
+            runs.append(('Autopsy', ae, autopsy_runtime.get(sc, 0.0)))
 
         for tool, evs, rt in runs:
             evs_eval = [e for e in evs if e.get('event_type') in gt_types]
@@ -287,6 +333,8 @@ def main():
             d = r.to_dict()
             d.update(tool=tool, ordering_supported=ordered,
                      recovers_pre_rename_name=found_pre)
+            if tool == 'Autopsy':
+                d['autopsy_csv'] = str(autopsy_path)
             results.append(d)
 
         if plaso_status and plaso_status != 'ok':

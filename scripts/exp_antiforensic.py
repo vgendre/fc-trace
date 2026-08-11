@@ -9,8 +9,10 @@ Scenarios
 ---------
   A1  baseline               known workload, no interference
   A2  journal wipe           zero the fast-commit blocks on the image
-  A3  partial wipe           zero only part of one commit (CRC should catch it)
-  A4  forced full commit     `sync`, which checkpoints and invalidates the FC area
+  A3  partial wipe           zero only part of one commit (resynchronisation
+                              and missing-commit evidence may expose the damage)
+  A4  forced full commit     `sync`, which checkpoints metadata but leaves the
+                              measured FC records intact
   A5  feature disabled       tune2fs -O ^fast_commit after the fact
   A6  secure delete          shred/srm the file contents
   A7  timestomp              forge inode timestamps, compare against FC order
