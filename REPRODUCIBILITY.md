@@ -1,13 +1,13 @@
 # Reproducibility guide
 
-This guide maps the camera-ready evaluation to the public code release. It
+This guide maps the associated evaluation to the public code release. It
 separates executable code, controlled evidence, and paper-only artifacts so
 that a reader can identify exactly what is required for each verification
 level.
 
 ## Paper-to-code map
 
-| Camera-ready component | Code-release location | Required external evidence |
+| Research-evaluation component | Code-release location | Required external evidence |
 | --- | --- | --- |
 | Read-only image access and journal discovery | `src/fctrace/io/` | A legally acquired image supplied by the user |
 | Fast-commit tag decoding and CRC-32C checks | `src/fctrace/parser/` | None for unit tests; controlled images for image-level validation |
@@ -18,7 +18,7 @@ level.
 | Scoring and metric calculation | `scripts/score_results.py` | The corresponding ground-truth ledger |
 | Kernel, retention, workload, scalability, and anti-forensic procedures | `scripts/exp_*.py`, `scripts/exp_*.sh` | Linux privileges, compatible tools, and recorded environment |
 
-The camera-ready paper, PDF, reviewer response, presentation, Autopsy
+The manuscript, PDF, reviewer response, presentation, Autopsy
 exports, and supporting-material archive are not code-release inputs.
 
 ## Verification levels
@@ -78,7 +78,7 @@ FC-Trace events.
 
 ## Evidence and claim boundaries
 
-The camera-ready paper reports five controlled 512 MiB images with
+The associated controlled evaluation reports five 512 MiB images with
 operation-level ground truth. Its reported macro means are precision 0.967,
 F1 0.709, ordering accuracy 0.975, and path recovery 1.000. These values
 describe the controlled corpus and its tested kernels/workloads.

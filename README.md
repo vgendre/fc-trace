@@ -12,12 +12,9 @@ fast-commit area.
 
 ## Release and research scope
 
-This repository is the code release associated with the camera-ready paper:
+This repository is the FC-Trace v1.0.0 code release.
 
-> FC-Trace: Rapid and Reliable Forensic Timeline Reconstruction from ext4
-> Fast-Commit Metadata
-
-The paper evaluates five 512 MiB controlled ext4 images with operation-level
+The controlled evaluation uses five 512 MiB ext4 images with operation-level
 ground truth. The reported macro means are precision 0.967, F1 0.709, ordering
 accuracy 0.975, and path recovery 1.000. Recall ranges from 0.333 to 1.000
 because kernel logging and finite fast-commit retention determine which events
@@ -27,7 +24,7 @@ The 29 GiB acquired removable-device image described in the paper is
 qualitative only. It has no independent operation-level ground truth and is
 not part of the scored dataset.
 
-The repository contains source code, tests, experiment drivers, packaging metadata, reproducibility documentation, small operation-level ground-truth ledgers, a checksum manifest, and reference JSON outputs. It does not contain raw disk images, Autopsy exports, the camera-ready manuscript, reviewer responses, presentation files, or supporting-material archives. The raw images and complete dataset provenance are published separately at [Zenodo DOI 10.5281/zenodo.21807669](https://doi.org/10.5281/zenodo.21807669).
+The repository contains source code, tests, experiment drivers, packaging metadata, reproducibility documentation, small operation-level ground-truth ledgers, a checksum manifest, and reference JSON outputs. It does not contain raw disk images, Autopsy exports, the manuscript, reviewer responses, presentation files, or supporting-material archives. The raw images and complete dataset provenance are published separately at [Zenodo DOI 10.5281/zenodo.21807669](https://doi.org/10.5281/zenodo.21807669).
 
 ## Repository layout
 
@@ -92,7 +89,7 @@ python -m pytest tests/test_fctrace.py -q
 ```
 
 The verified code-release baseline is 84 passed tests. The 168-test figure in
-the camera-ready supporting record refers to the broader camera-ready
+the supporting verification record refers to the broader workspace
 workspace verification and must not be substituted for this repository's
 test count.
 

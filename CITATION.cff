@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use FC-Trace, cite the code release and the versioned dataset record."
-title: "FC-Trace: Rapid and Reliable Forensic Timeline Reconstruction from ext4 Fast-Commit Metadata"
+title: "FC-Trace code release: ext4 Fast-Commit Forensic Timeline Reconstruction"
 version: "1.0.0"
 date-released: 2026-08-05
 authors:

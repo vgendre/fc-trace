@@ -9,7 +9,7 @@ The repository contains small ground-truth ledgers, a checksum manifest, and ref
 
 <https://doi.org/10.5281/zenodo.21807669>
 
-The camera-ready manuscript and its presentation/supporting materials are
+The manuscript and its presentation/supporting materials are
 separate publication artifacts and are not part of this code repository.
 
 ## Verification

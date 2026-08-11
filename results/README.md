@@ -1,7 +1,7 @@
 # Reference results
 
 This directory contains small reference JSON outputs associated with the
-camera-ready controlled evaluation:
+controlled evaluation:
 
 - `controlled_evaluation_kernel_6.19.14.json` records the FC-Trace results for the five
   controlled scenarios used for the paper's primary metrics.
