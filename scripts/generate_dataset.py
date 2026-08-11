@@ -28,8 +28,8 @@ Requirements
 Usage::
 
     sudo python3 generate_dataset.py \
-        --output-dir ./data/raw_images \
-        --gt-dir ./data/ground_truth \
+        --output-dir .//tmp/fc-trace-images \
+        --gt-dir .//tmp/fc-trace-ground-truth \
         --scenarios S1,S2,S3
 """
 
@@ -409,7 +409,7 @@ def generate_scenario(scenario_id: str, output_dir: Path, gt_dir: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='FC-Trace dataset generator')
-    parser.add_argument('--output-dir', default='./data/raw_images',
+    parser.add_argument('--output-dir', default='/tmp/fc-trace-images',
                         help='Directory to write generated *.img files')
     parser.add_argument('--gt-dir', default=None,
                         help='Directory to write *_gt.json files (default: same as --output-dir)')

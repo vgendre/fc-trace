@@ -25,7 +25,7 @@ Requires root (losetup, mount) and a Linux host with ext4 fast-commit support.
 Example::
 
     sudo python3 scripts/exp_evidence_window.py --mode capacity \\
-        --output results/measured/evidence_window.json
+        --output /tmp/fc-trace-evidence-window.json
 """
 
 from __future__ import annotations
@@ -212,7 +212,7 @@ def main() -> int:
     ap.add_argument('--fcsize-ops', type=int, default=200,
                     help='operation count for fcsize mode')
     ap.add_argument('--workdir', default='/tmp/fctrace_window')
-    ap.add_argument('--output', default='results/measured/evidence_window.json')
+    ap.add_argument('--output', default='/tmp/fc-trace-evidence-window.json')
     args = ap.parse_args()
 
     if os.geteuid() != 0:

@@ -1,7 +1,7 @@
 #!/bin/bash
 # exp_kernel_matrix.sh — evidence availability across Linux kernel versions
 # =========================================================================
-# Reviewer comment 2 asks for validation across kernel versions. Containers
+# This script compares evidence availability across kernel versions. Containers
 # cannot answer it: Docker and WSL2 share the host kernel. This script boots
 # a real VM per kernel with QEMU, runs the FC-Trace real-image evaluation
 # inside it, and captures the result from the serial console.
@@ -34,7 +34,7 @@ build_transfer() {
     mkfs.ext4 -F -q transfer.img
     mkdir -p /mnt/xfer
     mount -o loop transfer.img /mnt/xfer || return 1
-    cp -r "$REPO/src" "$REPO/scripts" "$REPO/data" /mnt/xfer/
+    cp -r "$REPO/src" "$REPO/scripts" /mnt/xfer/
     umount /mnt/xfer
 }
 

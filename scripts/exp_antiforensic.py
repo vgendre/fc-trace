@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-exp_antiforensic.py — anti-forensic resilience evaluation (reviewer comment 5)
+exp_antiforensic.py — anti-forensic resilience evaluation
 ==============================================================================
 Evaluates FC-Trace against a tier-2 adversary: one who can write to the block
 device directly, not merely operate through the file-system interface.
@@ -23,7 +23,7 @@ survives and whether the interference is *detectable*.
 Requires root. Example::
 
     sudo python3 scripts/exp_antiforensic.py \\
-        --output results/measured/antiforensic.json
+        --output /tmp/fc-trace-anti-forensic.json
 """
 
 import argparse
@@ -141,7 +141,7 @@ def main():
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--workdir', default='/tmp/fctrace_af')
-    ap.add_argument('--output', default='results/measured/antiforensic.json')
+    ap.add_argument('--output', default='/tmp/fc-trace-anti-forensic.json')
     args = ap.parse_args()
 
     if os.geteuid() != 0:

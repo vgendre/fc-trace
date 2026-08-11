@@ -48,7 +48,7 @@ COPY pyproject.toml README.md AUTHORS.md CITATION.cff LICENSE ./
 RUN python3 -m pip install --no-cache-dir -e ".[dev]"
 
 # ── Create data directories ──────────────────────────────────
-RUN mkdir -p data/raw_images data/ground_truth data/processed results
+RUN mkdir -p /tmp/fc-trace-work
 
 # ── Verify installation ──────────────────────────────────────
 RUN python3 -m pytest tests/test_fctrace.py -q --tb=short \
@@ -66,6 +66,6 @@ CMD ["bash"]
 #     python -m fctrace /images/disk.img --output-json /images/out.json
 #
 # Generate dataset (requires privileged):
-#   docker run --rm --privileged -v $(pwd)/data:/opt/fc-trace/data \
+#   docker run --rm --privileged -v /tmp/fc-trace-work:/work \
 #     fc-trace:latest \
-#     sudo python3 scripts/generate_dataset.py --output-dir data/raw_images
+#     sudo python3 scripts/generate_dataset.py --output-dir /work/images --gt-dir /work/ground-truth

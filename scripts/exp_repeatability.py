@@ -3,10 +3,7 @@
 Repeatability experiment: run the S1-S5 real-image evaluation N times and
 report mean +/- standard deviation per metric.
 
-The manuscript currently reports a single run, which reviewers flagged. Fast
-commit is timing-sensitive -- whether an operation reaches the FC area depends
-on where it falls relative to the JBD2 commit interval -- so repeated trials
-are the honest way to characterise it.
+Fast commit is timing-sensitive: whether an operation reaches the FC area depends on its position relative to the JBD2 commit interval. Repeated trials quantify run-to-run variation.
 
 Usage: exp_repeatability.py [N]
 """
@@ -23,7 +20,7 @@ _ap = argparse.ArgumentParser(description=__doc__,
                               formatter_class=argparse.RawDescriptionHelpFormatter)
 _ap.add_argument('-n', '--runs', type=int, default=5)
 _ap.add_argument('--snap-dir', default='/tmp/fctrace_repeat')
-_ap.add_argument('--output', default='results/measured/repeatability.json')
+_ap.add_argument('--output', default='/tmp/fc-trace-repeatability.json')
 _args = _ap.parse_args()
 
 N = _args.runs

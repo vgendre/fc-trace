@@ -2,10 +2,7 @@
 """
 exp_invalidation.py — what actually destroys fast-commit evidence?
 ===================================================================
-The manuscript originally stated that a full JBD2 commit, "automatic or
-manual, e.g. sync", overwrites fast-commit records. A single measurement
-contradicted that, so this harness tests each candidate mechanism separately
-and reports how many scripted CREATE events survive each one.
+This harness separates candidate causes of fast-commit evidence loss and reports how many scripted CREATE events survive each condition.
 
 Conditions
 ----------
@@ -25,7 +22,7 @@ produces a limitation statement that does not hold.
 Requires root. Example::
 
     sudo python3 scripts/exp_invalidation.py \\
-        --output results/measured/invalidation.json
+        --output /tmp/fc-trace-invalidation.json
 """
 
 import argparse
@@ -172,7 +169,7 @@ def main():
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--workdir', default='/tmp/fctrace_inv')
-    ap.add_argument('--output', default='results/measured/invalidation.json')
+    ap.add_argument('--output', default='/tmp/fc-trace-invalidation.json')
     ap.add_argument('--only', default=None)
     args = ap.parse_args()
 

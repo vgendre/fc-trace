@@ -28,7 +28,7 @@ Approach:
   9. Evaluate against ground truth.
 
 Run as root:
-    python3 scripts/run_real_image_tests.py [--output results/evaluation_realmode.json]
+    python3 scripts/run_real_image_tests.py [--output /tmp/fc-trace-evaluation.json]
 """
 
 import argparse
@@ -524,10 +524,10 @@ def print_table(results: List[EvaluationResult]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description='FC-Trace real-image evaluation harness')
-    parser.add_argument('--output', default='results/evaluation_realmode.json')
+    parser.add_argument('--output', default='/tmp/fc-trace-evaluation.json')
     parser.add_argument('--snap-dir', default='/tmp/fctrace_snapshots',
                         help='Directory for dd snapshots (needs ~3 GB free)')
-    parser.add_argument('--gt-dir', default='data/ground_truth')
+    parser.add_argument('--gt-dir', default='/tmp/fc-trace-ground-truth')
     parser.add_argument('--scenarios', default='S1,S2,S3,S4,S5')
     parser.add_argument('--verbose', action='store_true')
     args = parser.parse_args()

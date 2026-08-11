@@ -1,96 +1,112 @@
-# FC-Trace code release v1.0.0
+# FC-Trace
 
-This directory contains the FC-Trace v1.0.0 code release.
+FC-Trace is a read-only Python parser for ext4 fast-commit metadata. It
+decodes block-structured JBD2 fast-commit records, verifies available
+TAIL CRC-32C values, correlates supported LINK/UNLINK pairs into rename
+events, and emits ordered JSON, CSV, and text reports.
 
-FC-Trace is a Python research tool for parsing ext4 fast-commit records from raw disk images and reconstructing ordered, integrity-checked forensic events. It is intended for post-mortem analysis of ext4 volumes created with the `fast_commit` feature enabled.
+FC-Trace is an additional forensic evidence layer. It does not replace a
+general forensic suite, recover file contents, prove user intent, or restore
+records that were never logged or have already been evicted from the finite
+fast-commit area.
 
-## Code release scope
+## Release and research scope
 
-This repository contains the FC-Trace source code, command-line interface, tests, experiment scripts, packaging metadata, and documentation. It does not contain raw disk images, the Zenodo dataset deposit.
+This repository is the code release associated with the camera-ready paper:
 
-- `src/fctrace/` — parser, event reconstruction, reporters, and CLI
-- `tests/` — automated unit and integration tests
-- `scripts/` — simulation, image generation, scoring, and experiment tools
-- `.github/workflows/` — continuous-integration workflow
-- `pyproject.toml` — package metadata and dependencies
-- `Dockerfile` — optional container test environment
+> FC-Trace: Rapid and Reliable Forensic Timeline Reconstruction from ext4
+> Fast-Commit Metadata
+
+The paper evaluates five 512 MiB controlled ext4 images with operation-level
+ground truth. The reported macro means are precision 0.967, F1 0.709, ordering
+accuracy 0.975, and path recovery 1.000. Recall ranges from 0.333 to 1.000
+because kernel logging and finite fast-commit retention determine which events
+remain available.
+
+The 29 GiB acquired removable-device image described in the paper is
+qualitative only. It has no independent operation-level ground truth and is
+not part of the scored dataset.
+
+The repository contains source code, tests, experiment drivers, packaging metadata, reproducibility documentation, small operation-level ground-truth ledgers, a checksum manifest, and reference JSON outputs. It does not contain raw disk images, Autopsy exports, the camera-ready manuscript, reviewer responses, presentation files, or supporting-material archives. The raw images and complete dataset provenance are published separately at [Zenodo DOI 10.5281/zenodo.21807669](https://doi.org/10.5281/zenodo.21807669).
+
+## Repository layout
+
+| Path | Purpose |
+| --- | --- |
+| `src/fctrace/` | Image access, journal access, TLV decoding, CRC checking, event reconstruction, comparison, and report generation |
+| `tests/` | Automated parser and reconstruction tests |
+| `scripts/` | Dataset generation, controlled evaluation, scoring, workload, kernel, capacity, scalability, and comparison drivers |
+| `data/` | Small controlled-corpus ledgers and the checksum manifest; raw images are excluded |
+| `results/` | Reference real-mode and simulation JSON outputs |
+| `REPRODUCIBILITY.md` | Paper-to-code map and reproducibility procedures |
+| `CITATION.cff` | Citation metadata for the code release and dataset |
+| `AVAILABILITY.md` | Code, dataset, licensing, and verification boundaries |
+| `pyproject.toml` | Package metadata, dependencies, and the `fctrace` command |
+| `.github/workflows/ci.yml` | Continuous-integration test and lint workflow |
 
 ## Requirements
 
-### Required for installation and tests
+For installation, simulation, and automated tests:
 
 - Python 3.10 or newer
-- `python3-venv` and `python3-pip`
-- Internet access for the first installation, unless the packages are already cached
+- Python virtual-environment and packaging support
+- Internet access when installing uncached dependencies
 
-There is no separate `requirements.txt`. The package and development dependency are declared in `pyproject.toml`.
+Controlled image generation additionally requires Linux, `e2fsprogs`, loop
+devices, mount permission, and an ext4 kernel with `fast_commit` support.
+Analysis of an existing image is read-only and does not mount the image.
 
-### Additional requirements for real-image experiments
+There is no separate `requirements.txt`; dependencies are declared in
+`pyproject.toml`.
 
-- Linux with an ext4 kernel that supports `fast_commit`
-- `e2fsprogs`, including `mkfs.ext4` and `dumpe2fs`
-- root privileges, loop devices, and mount permission
-
-These additional requirements are not needed to install FC-Trace, run the parser tests, run simulation mode, or analyze an existing image read-only.
-
-## Install step by step
-
-On Debian or Ubuntu, install the Python prerequisites:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y python3 python3-venv python3-pip
-```
-
-Clone the code repository and enter its root directory:
+## Installation
 
 ```bash
 git clone https://github.com/vgendre/fc-trace.git
 cd fc-trace
-```
-
-Create and activate an isolated environment:
-
-```bash
 python3 -m venv .venv
 source .venv/bin/activate
-```
-
-Upgrade packaging tools and install FC-Trace in editable mode with its test dependency:
-
-```bash
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
-The installation creates the `fctrace` command. Keep the virtual environment activated while using it.
+Optional plotting and tabular-analysis dependencies are available with:
 
-## Test step by step
+```bash
+python -m pip install -e ".[dev,eval]"
+```
 
-Confirm that the command-line interface is installed:
+## Verification
+
+Check the command-line interface:
 
 ```bash
 fctrace --help
 python -m fctrace.cli --help
 ```
 
-Run the complete automated test file:
+Run the code-release test suite:
 
 ```bash
 python -m pytest tests/test_fctrace.py -q
 ```
 
-The verified result for this release is:
+The verified code-release baseline is 84 passed tests. The 168-test figure in
+the camera-ready supporting record refers to the broader camera-ready
+workspace verification and must not be substituted for this repository's
+test count.
 
-```text
-84 passed
+Run the no-root parser simulation:
+
+```bash
+python scripts/score_results.py --simulate \
+  --output /tmp/fc-trace-simulation.json
 ```
 
-The test suite uses synthetic buffers and temporary files. It does not require root privileges, loop devices, or a disk image.
+Simulation validates parser and event-reconstruction behaviour; it is not a
+real-image accuracy experiment.
 
-## Analyze an existing image
-
-FC-Trace opens the input image read-only and does not mount it. Write reports outside the evidence directory:
+## Read-only image analysis
 
 ```bash
 fctrace /path/to/disk.img \
@@ -99,26 +115,14 @@ fctrace /path/to/disk.img \
   --output-text /tmp/fctrace-events.txt
 ```
 
-The equivalent module command is:
+Keep reports outside the evidence directory. Preserve the original image,
+its cryptographic hash, acquisition information, and the FC-Trace report
+together as case evidence.
 
-```bash
-python -m fctrace.cli /path/to/disk.img --output-json /tmp/fctrace-events.json
-```
+## Controlled evaluation
 
-## Run the no-root simulation
-
-Simulation validates parser and event-reconstruction behaviour with canonical TLV buffers:
-
-```bash
-python scripts/score_results.py --simulate \
-  --output /tmp/fc-trace-simulation.json
-```
-
-This is a parser validation result, not a real-image accuracy claim.
-
-## Run real-image evaluation
-
-Read `EXPERIMENTS.md` before running privileged commands. The short command is:
+Read [REPRODUCIBILITY.md](REPRODUCIBILITY.md) before running privileged
+experiments. The primary evaluation driver is:
 
 ```bash
 sudo python scripts/run_real_image_tests.py \
@@ -128,33 +132,23 @@ sudo python scripts/run_real_image_tests.py \
   --scenarios S1,S2,S3,S4,S5
 ```
 
-The command creates synthetic ext4 images and snapshots. Use temporary output directories because the raw images are large and must not be committed to GitHub. Regenerating on another host can change inode numbers, timestamps, offsets, and checksums.
+Generated images and new experiment outputs belong in temporary directories or the separately published dataset package; do not overwrite the small reference artifacts committed in `data/` and `results/`. Regeneration can change inode numbers, offsets, timestamps, and
+checksums even when the procedure is unchanged.
 
-## Optional dependencies and Docker
+## Interpretation limits
 
-Install plotting and tabular-analysis dependencies only when needed:
+FC-Trace reports retained fast-commit evidence. A structurally valid record or
+CRC match is not a cryptographic authenticity guarantee and does not establish
+user intent. The finite circular area can overwrite older records, and kernel
+workload behaviour determines which operations are logged. Compare FC-Trace
+with established directory, journal, content, and case-management evidence.
 
-```bash
-python -m pip install -e ".[dev,eval]"
-```
-
-The optional comparison scripts may use `fls`, `jls`, `debugfs`, Autopsy, or plaso when separately installed.
-
-```bash
-docker build -t fc-trace:1.0 .
-docker run --rm fc-trace:1.0 python -m pytest tests/test_fctrace.py -q
-```
-
-Real-image generation in a container requires loop-device access and a privileged container.
-
-## Dataset and limitations
-
-The matching versioned synthetic dataset and measured outputs are published at [Zenodo DOI 10.5281/zenodo.21807669](https://doi.org/10.5281/zenodo.21807669). They are separate from this code repository.
-
-FC-Trace reconstructs only evidence represented in the finite circular ext4 fast-commit area. Kernel logging behaviour varies by workload and kernel version. Results from the controlled corpus do not establish universal recall or production accuracy.
-
-Use FC-Trace only on disk images that you are legally authorized to examine.
+The paper's controlled metrics are not universal recall or production
+accuracy claims. The real removable-device analysis is qualitative and is not
+an independent scored benchmark.
 
 ## Citation and license
 
-Code citation metadata is in `CITATION.cff`. The source code is released under the MIT License. Dataset licensing is stated in the Zenodo record.
+Please cite the code release and the versioned dataset using
+`CITATION.cff`. The source code is distributed under the MIT License. Dataset
+terms are stated in the Zenodo record.

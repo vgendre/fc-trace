@@ -11,9 +11,9 @@ exploratory diagnostics unless a comparable baseline event model is added.
 Usage (after generating images with generate_dataset.py)::
 
     python3 scripts/score_results.py \\
-        --images-dir  data/raw_images \\
-        --gt-dir      data/ground_truth \\
-        --output      results/evaluation.json
+        --images-dir  /tmp/fc-trace-images \\
+        --gt-dir      /tmp/fc-trace-ground-truth \\
+        --output      /tmp/fc-trace-scored-results.json
 
 For simulation mode (no real images required)::
 
@@ -318,11 +318,11 @@ def main() -> int:
                         help='Also report precision without the ground-truth '
                              'event-type filter, counting support records '
                              '(INODE_UPDATE, EXTENT_ADD) as false positives')
-    parser.add_argument('--images-dir', default='data/raw_images',
+    parser.add_argument('--images-dir', default='/tmp/fc-trace-images',
                         help='Directory containing *.img scenario images')
-    parser.add_argument('--gt-dir', default='data/ground_truth',
+    parser.add_argument('--gt-dir', default='/tmp/fc-trace-ground-truth',
                         help='Directory containing *_gt.json ground-truth files')
-    parser.add_argument('--output', default='results/evaluation.json',
+    parser.add_argument('--output', default='/tmp/fc-trace-scored-results.json',
                         help='Output path for JSON results')
     parser.add_argument('--verbose', action='store_true')
     args = parser.parse_args()

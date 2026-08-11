@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-exp_tool_comparison.py — comparative benchmark (reviewer comment 3)
+exp_tool_comparison.py — comparative benchmark
 ====================================================================
 Runs FC-Trace and established forensic tools against the SAME captured
 snapshots, scores them against the SAME ground truth with the SAME metric
@@ -41,9 +41,9 @@ anywhere in the file system; it survives only in the fast-commit area.
 
 Example::
 
-    python3 scripts/exp_tool_comparison.py --snap-dir data/raw_images \\
-        --gt-dir data/ground_truth --autopsy-csv-dir autopsy_exports \\
-        --autopsy-runtime-json autopsy_runtime.json
+    python3 scripts/exp_tool_comparison.py --snap-dir /tmp/fc-trace-images \\
+        --gt-dir /tmp/fc-trace-ground-truth --autopsy-csv-dir /path/to/autopsy-exports \\
+        --autopsy-runtime-json /path/to/autopsy-runtime.json
 """
 
 import argparse
@@ -250,9 +250,9 @@ def main():
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--snap-dir', default='data/raw_images')
-    ap.add_argument('--gt-dir', default='data/ground_truth')
-    ap.add_argument('--output', default='results/measured/tool_comparison.json')
+    ap.add_argument('--snap-dir', default='/tmp/fc-trace-images')
+    ap.add_argument('--gt-dir', default='/tmp/fc-trace-ground-truth')
+    ap.add_argument('--output', default='/tmp/fc-trace-tool-comparison.json')
     ap.add_argument('--autopsy-csv', default=None,
                     help='single-scenario compatibility CSV; scored only for S1')
     ap.add_argument('--autopsy-csv-dir', default=None,

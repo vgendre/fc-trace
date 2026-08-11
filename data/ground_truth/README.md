@@ -1,21 +1,19 @@
-# Ground-Truth JSON Files
+# Operation-level ground truth
 
-These files define the expected events used by the simulation and real-image scoring scripts.
+These JSON ledgers define the expected file operations for controlled
+scenarios S1--S5. They are used by the scoring and comparison scripts when the
+corresponding versioned raw images are available.
 
-Simulation mode:
+The ledgers are small reproducibility metadata. The raw images, checksums,
+and complete provenance are distributed separately in the versioned Zenodo
+dataset.
+
+For a newly generated controlled run, use temporary paths:
 
 ```bash
-python scripts/score_results.py --simulate --output results/evaluation.json
-```
-
-Real-image mode, requiring root and loop-device support:
-
-```bash
-sudo python scripts/run_real_image_tests.py \
-  --output results/evaluation_realmode.json \
-  --snap-dir data/raw_images \
-  --gt-dir data/ground_truth \
+sudo python3 scripts/run_real_image_tests.py \
+  --output /tmp/fc-trace-evaluation.json \
+  --snap-dir /tmp/fc-trace-images \
+  --gt-dir /tmp/fc-trace-ground-truth \
   --scenarios S1,S2,S3,S4,S5
 ```
-
-The latest committed single-run real-image results are stored in `results/evaluation_realmode.json` and summarized in `README.md`.

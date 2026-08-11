@@ -2,9 +2,7 @@
 """
 exp_workloads.py — fast-commit evidence under realistic storage workloads
 =========================================================================
-Reviewer comment 2 asks for "diverse storage workloads". The five scripted
-scenarios are hand-written; this harness instead runs standard, citable
-workloads and reports what the fast-commit area actually retains from each.
+The five scripted scenarios are controlled metadata workloads; this harness instead runs standard, citable workloads and reports what the fast-commit area actually retains from each.
 
 Workloads
 ---------
@@ -22,7 +20,7 @@ event-type distribution, and how much of the area the workload consumed.
 
 Requires root. Example::
 
-    sudo python3 scripts/exp_workloads.py --output results/measured/workloads.json
+    sudo python3 scripts/exp_workloads.py --output /tmp/fc-trace-workloads.json
 """
 
 import argparse
@@ -197,7 +195,7 @@ def main():
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--workdir', default='/tmp/fctrace_wl')
-    ap.add_argument('--output', default='results/measured/workloads.json')
+    ap.add_argument('--output', default='/tmp/fc-trace-workloads.json')
     ap.add_argument('--only', default=None, help='comma-separated workload names')
     args = ap.parse_args()
 

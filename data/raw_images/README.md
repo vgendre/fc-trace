@@ -1,11 +1,10 @@
-# Real-Image Test Artifacts
+# Raw-image checksums
 
-This directory is used for generated ext4 loopback images and snapshots from the real-image evaluation harness.
+Raw disk images are intentionally excluded from this repository. The
+corresponding five controlled images are distributed in the versioned Zenodo
+dataset. `SHA256SUMS.txt` records the expected checksums and paths for those
+dataset files after extraction.
 
-The raw `.img` files are intentionally not committed to the normal Git repository because each image is 512 MiB and exceeds normal GitHub file-size limits. They are generated locally by:
-
-```bash
-sudo python scripts/run_real_image_tests.py --output results/evaluation_realmode.json --snap-dir data/raw_images --gt-dir data/ground_truth --scenarios S1,S2,S3,S4,S5
-```
-
-After generation, `SHA256SUMS.txt` records the local artifact checksums for auditability. To publish the raw images later, use GitHub Releases with large-file support, Git LFS, Zenodo, or OSF.
+Do not add raw images, acquired case material, Autopsy exports, or other
+large evidence files to the code repository. Preserve them under the
+appropriate dataset or case-evidence workflow.

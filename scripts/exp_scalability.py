@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-exp_scalability.py — computational overhead and scalability (reviewer comment 4)
+exp_scalability.py — computational overhead and scalability
 ================================================================================
 Measures how FC-Trace's cost behaves as the forensic image grows.
 
@@ -22,7 +22,7 @@ Example::
 
     sudo python3 scripts/exp_scalability.py \\
         --sizes 512M,2G,8G,32G,128G,512G \\
-        --output results/measured/scalability.json
+        --output /tmp/fc-trace-scalability.json
 """
 
 import argparse
@@ -133,7 +133,7 @@ def main() -> int:
     ap.add_argument('--repeat', type=int, default=5,
                     help='timed repetitions per size')
     ap.add_argument('--workdir', default='/tmp/fctrace_scale')
-    ap.add_argument('--output', default='results/measured/scalability.json')
+    ap.add_argument('--output', default='/tmp/fc-trace-scalability.json')
     ap.add_argument('--no-fls', action='store_true',
                     help='skip the Sleuth Kit contrast run')
     args = ap.parse_args()
